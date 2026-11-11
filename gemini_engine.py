@@ -4,20 +4,88 @@ from google import genai
 from google.genai import types
 from curadoria import INSIGHTS_GERAIS
 
+# Modelos tentados em ordem. Pode sobrescrever com a variável/secret GEMINI_MODEL.
+MODELOS_PREFERIDOS = [
+    "gemini-3.8-flash",
+    "gemini-flash-latest",
+    "gemini-2.5-flash-lite",
+]
+
+
 def get_client(api_key: str = None):
     key = api_key or os.getenv("GEMINI_API_KEY")
     if not key:
         raise ValueError("Chave GEMINI_API_KEY não encontrada.")
     return genai.Client(api_key=key)
 
-def avaliar_resposta_completa(client, contexto: dict, pergunta: str, dados_pergunta: dict, resposta_texto: str = None, audio_bytes: bytes = None, audio_mime: str = "audio/wav"):
-    """
-    Avalia a resposta do candidato (áudio ou texto) utilizando os modelos Gemini atualizados.
-    """
-    if not contexto:
-        contexto = {}
-    if not dados_pergunta:
-        dados_pergunta = {}
+
+def _descobrir_modelos(client):
+    """Consulta a API e devolve modelos 'flash' que suportam generateContent."""
+    try:
+        nomes = []
+        for m in client.models.list():
+            acoes = getattr(m, "supported_actions", None) or []
+            nome = (getattr(m, "name", "") or "").replace("models/", "")
+            if "generateContent" in acoes and "flash" in nome:
+                if any(x in nome for x in ("image", "tts", "live", "audio", "embedding")):
+                    continue
+                nomes.append(nome)
+        return sorted(set(nomes), reverse=True)
+    except Exception:
+        return []
+
+
+def _lista_modelos(client):
+    ordem = []
+    override = os.getenv("GEMINI_MODEL")
+    if override:
+        ordem.append(override)
+    ordem.extend(MODELOS_PREFERIDOS)
+    # Descobre modelos disponíveis só se necessário (evita chamada extra a cada vez)
+    return ordem
+
+
+def _gerar(client, contents, config=None):
+    """Tenta gerar conteúdo percorrendo modelos. Retorna (texto, erros)."""
+    erros = []
+    tentados = set()
+
+    def tentar(model_name):
+        if model_name in tentados:
+            return None
+        tentados.add(model_name)
+        try:
+            kwargs = {"model": model_name, "contents": contents}
+            if config is not None:
+                kwargs["config"] = config
+            resp = client.models.generate_content(**kwargs)
+            if resp and resp.text:
+                return resp.text
+            erros.append(f"{model_name}: resposta vazia")
+        except Exception as e:
+            erros.append(f"{model_name}: {e}")
+        return None
+
+    for nome in _lista_modelos(client):
+        texto = tentar(nome)
+        if texto:
+            return texto, erros
+
+    # Último recurso: pergunta à API quais modelos existem
+    for nome in _descobrir_modelos(client):
+        texto = tentar(nome)
+        if texto:
+            return texto, erros
+
+    return None, erros
+
+
+def avaliar_resposta_completa(client, contexto: dict, pergunta: str, dados_pergunta: dict,
+                              resposta_texto: str = None, audio_bytes: bytes = None,
+                              audio_mime: str = "audio/wav"):
+    """Avalia a resposta do candidato (áudio ou texto)."""
+    contexto = contexto or {}
+    dados_pergunta = dados_pergunta or {}
 
     prompt_texto = f"""
     {INSIGHTS_GERAIS}
@@ -52,37 +120,21 @@ def avaliar_resposta_completa(client, contexto: dict, pergunta: str, dados_pergu
         prompt_texto += f"\n\nRESPOSTA ESCRITA DO CANDIDATO:\n{str(resposta_texto).strip()}"
 
     parts = []
-
-    # Se houver áudio, adiciona os bytes
     if audio_bytes and isinstance(audio_bytes, bytes) and len(audio_bytes) > 0:
         parts.append(types.Part.from_bytes(data=audio_bytes, mime_type=audio_mime))
-
-    # Adiciona a instrução de texto
     parts.append(types.Part.from_text(text=prompt_texto))
 
-    # Lista de modelos válidos no SDK google-genai
-    erros = []
-    for model_name in ['gemini-2.5-flash', 'gemini-1.5-flash']:
-        try:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=parts
-            )
-            if response and response.text:
-                return response.text
-        except Exception as e:
-            erros.append(f"{model_name}: {str(e)}")
-            continue
+    texto, erros = _gerar(client, parts)
+    if texto:
+        return texto
 
-    return f"Não foi possível obter resposta da API do Gemini. Detalhes do erro:\n\n" + "\n".join(erros)
+    return "Não foi possível obter resposta da API do Gemini. Detalhes do erro:\n\n" + "\n\n".join(erros)
 
-def simular_chat_lapidacao_com_busca(client, historico_mensagens: list, contexto_vaga: dict, pergunta: str, parecer_anterior: str):
-    """
-    Chat interativo que utiliza busca na web (Google Search Grounding) para complementar
-    as informações da empresa e vaga.
-    """
-    if not contexto_vaga:
-        contexto_vaga = {}
+
+def simular_chat_lapidacao_com_busca(client, historico_mensagens: list, contexto_vaga: dict,
+                                     pergunta: str, parecer_anterior: str):
+    """Chat de lapidação, com Google Search quando disponível."""
+    contexto_vaga = contexto_vaga or {}
 
     system_instruction = f"""
     Você é um mentor sênior de carreiras e recrutador de elite.
@@ -108,26 +160,22 @@ def simular_chat_lapidacao_com_busca(client, historico_mensagens: list, contexto
         role = "user" if msg.get("role") == "user" else "model"
         texto = msg.get("content", "")
         if str(texto).strip():
-            contents.append(
-                types.Content(
-                    role=role,
-                    parts=[types.Part.from_text(text=str(texto))]
-                )
-            )
+            contents.append(types.Content(role=role, parts=[types.Part.from_text(text=str(texto))]))
 
-    for model_name in ['gemini-2.5-flash', 'gemini-1.5-flash']:
-        try:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    system_instruction=system_instruction,
-                    tools=[{"google_search": {}}]
-                )
-            )
-            if response and response.text:
-                return response.text
-        except Exception:
-            continue
-            
-    return "Não foi possível gerar a resposta do chat no momento."
+    # 1ª tentativa: com busca na web
+    config_busca = types.GenerateContentConfig(
+        system_instruction=system_instruction,
+        tools=[types.Tool(google_search=types.GoogleSearch())],
+    )
+    texto, erros_busca = _gerar(client, contents, config_busca)
+    if texto:
+        return texto
+
+    # 2ª tentativa: sem ferramenta de busca
+    config_simples = types.GenerateContentConfig(system_instruction=system_instruction)
+    texto, erros_simples = _gerar(client, contents, config_simples)
+    if texto:
+        return texto
+
+    detalhes = "\n\n".join(erros_simples or erros_busca)
+    return "Não foi possível gerar a resposta do chat no momento. Detalhes:\n\n" + detalhes
