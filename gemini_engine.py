@@ -13,9 +13,14 @@ def get_client(api_key: str = None):
 
 def avaliar_resposta_completa(client, contexto: dict, pergunta: str, dados_pergunta: dict, resposta_texto: str = None, audio_bytes: bytes = None, audio_mime: str = "audio/wav"):
     """
-    Avalia a resposta do candidato (seja via áudio ou texto) considerando
-    a técnica recomendada e expectativas específicas de curadoria.
+    Avalia a resposta do candidato (seja via áudio ou texto) garantindo a construção
+    correta das Parts para a SDK oficial da Google GenAI.
     """
+    if not contexto:
+        contexto = {}
+    if not dados_pergunta:
+        dados_pergunta = {}
+
     prompt_texto = f"""
     {INSIGHTS_GERAIS}
 
@@ -45,30 +50,40 @@ def avaliar_resposta_completa(client, contexto: dict, pergunta: str, dados_pergu
        - Reescrita Sugerida de Alto Impacto
     """
 
+    if resposta_texto and resposta_texto.strip():
+        prompt_texto += f"\n\nRESPOSTA ESCRITA DO CANDIDATO:\n{resposta_texto.strip()}"
+
     contents = []
 
-    # Se enviou áudio, inclui a parte de áudio
-    if audio_bytes:
+    # Se recebeu bytes de áudio válidos, adiciona como parte de mídia
+    if audio_bytes and isinstance(audio_bytes, bytes) and len(audio_bytes) > 0:
         contents.append(types.Part.from_bytes(data=audio_bytes, mime_type=audio_mime))
 
-    # Se enviou texto, concatena com o prompt
-    if resposta_texto:
-        prompt_texto += f"\n\nRESPOSTA ESCRITA DO CANDIDATO:\n{resposta_texto}"
+    # Adiciona a parte de texto como Part explícita
+    contents.append(types.Part.from_text(text=prompt_texto))
 
-    contents.append(prompt_texto)
-
-    # Modelo corrigido para 'gemini-2.0-flash'
-    response = client.models.generate_content(
-        model='gemini-2.0-flash',
-        contents=contents
-    )
-    return response.text
+    try:
+        response = client.models.generate_content(
+            model='gemini-2.0-flash',
+            contents=contents
+        )
+        return response.text
+    except Exception as e:
+        # Fallback de segurança se o modelo 2.0 não responder no ambiente
+        response = client.models.generate_content(
+            model='gemini-1.5-flash',
+            contents=contents
+        )
+        return response.text
 
 def simular_chat_lapidacao_com_busca(client, historico_mensagens: list, contexto_vaga: dict, pergunta: str, parecer_anterior: str):
     """
     Chat interativo que utiliza busca na web (Google Search Grounding) para complementar
     as informações da empresa, vaga e melhores práticas do mercado.
     """
+    if not contexto_vaga:
+        contexto_vaga = {}
+
     system_instruction = f"""
     Você é um mentor sênior de carreiras e recrutador de elite.
     Seu objetivo é ajudar o candidato a lapidar a resposta para a pergunta: "{pergunta}".
@@ -91,9 +106,10 @@ def simular_chat_lapidacao_com_busca(client, historico_mensagens: list, contexto
     contents = []
     for msg in historico_mensagens:
         role = "user" if msg["role"] == "user" else "model"
-        contents.append({"role": role, "parts": [{"text": msg["content"]}]})
+        texto = msg.get("content", "")
+        if texto.strip():
+            contents.append({"role": role, "parts": [{"text": texto}]})
 
-    # Modelo corrigido para 'gemini-2.0-flash'
     response = client.models.generate_content(
         model='gemini-2.0-flash',
         contents=contents,
