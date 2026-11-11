@@ -1,1353 +1,485 @@
-import os
 import io
+import os
+import uuid
+from datetime import datetime
+
 import streamlit as st
-from google import genai
-from google.genai import types
+from pypdf import PdfReader
+from docx import Document
 
-from curadoria import INSIGHTS_GERAIS, PERGUNTAS_CURATORIA
-
-# Dependências para leitura dos currículos
-try:
-    from pypdf import PdfReader
-except ImportError:
-    PdfReader = None
-
-try:
-    from docx import Document
-except ImportError:
-    Document = None
-
-
-# ============================================================
-# CONFIGURAÇÃO
-# ============================================================
-
-st.set_page_config(
-    page_title="Interview Lab AI",
-    page_icon="🎯",
-    layout="wide",
-    initial_sidebar_state="collapsed",
+from auth.service import sign_up, sign_in, send_password_reset, sign_out
+from database.client import get_user_client
+from database.repository import (
+    ensure_profile, log_event, save_professional_profile, create_simulation,
+    update_simulation_status, save_answer, save_chat_message, list_simulations,
+    get_simulation_details, is_admin, admin_overview, admin_simulation_details,
 )
+from curadoria import INSIGHTS_GERAIS, PERGUNTAS_CURATORIA
+from gemini_engine import get_client, avaliar_resposta, transcrever_audio, mentor_chat
 
-MODEL = "gemini-2.5-flash"
-
-
-# ============================================================
-# IDENTIDADE VISUAL
-# ============================================================
+st.set_page_config(page_title="Interview Lab AI", page_icon="🎯", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
-
-.stApp {
-    background-color: #FBF9F5;
-    color: #2C2A29;
-    font-family: 'Plus Jakarta Sans', sans-serif;
-}
-
-h1, h2, h3, h4 {
-    font-family: 'Playfair Display', serif !important;
-    color: #1E3023 !important;
-    font-weight: 700;
-}
-
-p, label, div, span {
-    font-family: 'Plus Jakarta Sans', sans-serif;
-}
-
-.editorial-card {
-    background: #F4F1EA;
-    border: 1px solid #E3DED4;
-    padding: 22px;
-    border-radius: 4px;
-    margin-bottom: 16px;
-}
-
-.small-muted {
-    color: #6C665F;
-    font-size: .92rem;
-}
-
-.stButton > button {
-    background: #1E3023;
-    color: #FBF9F5;
-    border: 1px solid #1E3023;
-    border-radius: 2px;
-    padding: .58rem 1.15rem;
-    font-weight: 500;
-    transition: all .2s ease;
-}
-
-.stButton > button:hover {
-    background: #2C4233;
-    color: white;
-    border-color: #2C4233;
-}
-
-.stTextInput input,
-.stTextArea textarea {
-    background: #FFFFFF;
-    border: 1px solid #DCD6CD;
-    border-radius: 2px;
-    color: #2C2A29;
-}
-
-div[data-baseweb="select"] > div {
-    background: #FFFFFF;
-    border-color: #DCD6CD;
-    border-radius: 2px;
-}
-
-hr {
-    border-color: #E3DED4;
-}
-
-#MainMenu, footer {
-    visibility: hidden;
-}
-
-.block-container {
-    padding-top: 1.5rem;
-    padding-bottom: 3rem;
-}
-
-[data-testid="stFileUploader"] {
-    background: #FFFFFF;
-    border: 1px dashed #CFC7BA;
-    padding: 10px;
-    border-radius: 4px;
-}
+.stApp{background:#FBF9F5;color:#2C2A29;font-family:'Plus Jakarta Sans',sans-serif}
+h1,h2,h3,h4{font-family:'Playfair Display',serif!important;color:#1E3023!important}
+p,label,div,span{font-family:'Plus Jakarta Sans',sans-serif}
+.editorial-card{background:#F4F1EA;border:1px solid #E3DED4;padding:22px;border-radius:4px;margin-bottom:16px}
+.small-muted{color:#6C665F;font-size:.92rem}
+.stButton>button{background:#1E3023;color:#FBF9F5;border:1px solid #1E3023;border-radius:2px;font-weight:500}
+.stButton>button:hover{background:#2C4233;color:white;border-color:#2C4233}
+.stTextInput input,.stTextArea textarea{background:#fff;border:1px solid #DCD6CD;border-radius:2px;color:#2C2A29}
+hr{border-color:#E3DED4}#MainMenu,footer{visibility:hidden}
+.block-container{padding-top:1.5rem;padding-bottom:3rem}
 </style>
 """, unsafe_allow_html=True)
 
 
-# ============================================================
-
-# --- CABEÇALHO EDITORIAL ---
-st.markdown(
-    """
-    <div style="
-        text-align: center;
-        padding: 2rem 0 1rem 0;
-    ">
-        <p style="
-            letter-spacing: 3px;
-            font-size: 0.85rem;
-            text-transform: uppercase;
-            color: #5A655D;
-            margin-bottom: 0.5rem;
-        ">
-            — Atelier de Carreiras & Simulações —
-        </p>
-
-        <h1 style="
-            font-family: 'Playfair Display', serif;
-            font-size: 3rem;
-            margin-bottom: 0.45rem;
-            font-style: italic;
-            color: #1E3023;
-        ">
-            Interview Lab AI
-        </h1>
-
-        <p style="
-            color: #6C665F;
-            font-size: 1rem;
-            max-width: 580px;
-            margin: 0 auto;
-        ">
-            Estruture respostas, pratique entrevistas e desenvolva
-            uma narrativa profissional consistente com apoio
-            de inteligência artificial.
-        </p>
-    </div>
-
-    <hr style="
-        border: none;
-        border-top: 1px solid #E3DED4;
-        margin: 2rem 0;
-    ">
-    """,
-    unsafe_allow_html=True
-)
-
-# ============================================================
-# ESTADO DA APLICAÇÃO
-# ============================================================
-
-DEFAULTS = {
-    "contexto_vaga": None,
-    "curriculo_texto": "",
-    "curriculo_nome": "",
-    "curriculo_bytes": None,
-    "linkedin_url": "",
-    "etapa1_concluida": False,
-    "etapa2_concluida": False,
-    "pergunta_selecionada": None,
-    "resposta_texto": "",
-    "ultima_avaliacao": None,
-    "avaliacoes": [],
-    "mensagens_chat": [],
-    "audio_transcrito": "",
-}
-
-for key, value in DEFAULTS.items():
-    if key not in st.session_state:
-        st.session_state[key] = value
+def header(subtitle="Estruture respostas, pratique entrevistas e desenvolva uma narrativa profissional consistente com apoio de inteligência artificial."):
+    st.markdown(f"""<div style='text-align:center;padding:1.2rem 0 .8rem'>
+    <p style='letter-spacing:3px;font-size:.78rem;text-transform:uppercase;color:#5A655D'>— Atelier de Carreiras & Simulações —</p>
+    <h1 style='font-size:2.8rem;font-style:italic;margin-bottom:.35rem'>Interview Lab AI</h1>
+    <p style='color:#6C665F;max-width:650px;margin:auto'>{subtitle}</p></div><hr style='margin:1.5rem 0'>""", unsafe_allow_html=True)
 
 
-# ============================================================
-# GEMINI E LEITURA DE ARQUIVOS
-# ============================================================
-
-def obter_api_key():
-
+def secrets_ready():
     try:
-        key = st.secrets.get("GEMINI_API_KEY")
-
-        if key:
-            return key
-
+        return bool(st.secrets.get("SUPABASE_URL") and st.secrets.get("SUPABASE_ANON_KEY"))
     except Exception:
-        pass
-
-    return os.environ.get("GEMINI_API_KEY")
+        return False
 
 
-def extrair_texto_curriculo(uploaded_file):
-
-    if uploaded_file is None:
-        return "", ""
-
-    raw = uploaded_file.getvalue()
-    nome = uploaded_file.name
-
-    ext = nome.lower().rsplit(".", 1)[-1]
-
-    if ext == "pdf":
-
-        if PdfReader is None:
-            raise RuntimeError(
-                "Instale pypdf para permitir a leitura de currículos em PDF."
-            )
-
-        reader = PdfReader(io.BytesIO(raw))
-
-        texto = "\n".join(
-            page.extract_text() or ""
-            for page in reader.pages
-        )
-
-    elif ext == "docx":
-
-        if Document is None:
-            raise RuntimeError(
-                "Instale python-docx para permitir a leitura de currículos DOCX."
-            )
-
-        doc = Document(io.BytesIO(raw))
-
-        texto = "\n".join(
-            p.text for p in doc.paragraphs
-        )
-
-        for table in doc.tables:
-
-            for row in table.rows:
-
-                texto += "\n" + " | ".join(
-                    cell.text for cell in row.cells
-                )
-
-    elif ext == "txt":
-
-        texto = raw.decode(
-            "utf-8",
-            errors="replace"
-        )
-
-    else:
-
-        raise RuntimeError(
-            "Formato não suportado. Anexe PDF, DOCX ou TXT."
-        )
-
-    return texto.strip(), nome
-
-
-def gerar_conteudo(client, prompt, pesquisar_web=False):
-
-    config = types.GenerateContentConfig(
-        temperature=0.55,
-        tools=[
-            types.Tool(
-                google_search=types.GoogleSearch()
-            )
-        ] if pesquisar_web else None,
-    )
-
-    resposta = client.models.generate_content(
-        model=MODEL,
-        contents=prompt,
-        config=config,
-    )
-
-    return resposta.text or (
-        "Não foi possível gerar uma resposta textual. Tente novamente."
-    )
+def login_screen():
+    header("Seu espaço pessoal de preparação profissional.")
+    st.markdown("### Acesse sua conta")
+    tab_login, tab_signup, tab_reset = st.tabs(["Entrar", "Criar conta", "Recuperar senha"])
+    with tab_login:
+        with st.form("login_form"):
+            email = st.text_input("E-mail", key="login_email")
+            password = st.text_input("Senha", type="password", key="login_password")
+            submitted = st.form_submit_button("Entrar", type="primary", use_container_width=True)
+        if submitted:
+            try:
+                response = sign_in(email, password)
+                session = response.session
+                if not session:
+                    st.error("Não foi possível iniciar a sessão. Verifique e-mail e senha.")
+                else:
+                    st.session_state.auth_access_token = session.access_token
+                    st.session_state.auth_refresh_token = session.refresh_token
+                    st.session_state.auth_user = response.user
+                    profile = ensure_profile(session.access_token, session.refresh_token, response.user)
+                    log_event(session.access_token, session.refresh_token, "login")
+                    st.session_state.profile = profile
+                    st.rerun()
+            except Exception as exc:
+                st.error(f"Não foi possível entrar: {exc}")
+    with tab_signup:
+        with st.form("signup_form"):
+            name = st.text_input("Nome completo")
+            email_new = st.text_input("E-mail", key="signup_email")
+            password_new = st.text_input("Senha", type="password", help="Use pelo menos 8 caracteres.")
+            password_confirm = st.text_input("Confirme a senha", type="password")
+            accepted = st.checkbox("Li e concordo com a política de privacidade da plataforma.")
+            create = st.form_submit_button("Criar minha conta", type="primary", use_container_width=True)
+        if create:
+            if not name.strip() or not email_new.strip() or len(password_new) < 8:
+                st.warning("Informe nome, e-mail e uma senha com pelo menos 8 caracteres.")
+            elif password_new != password_confirm:
+                st.warning("As senhas não coincidem.")
+            elif not accepted:
+                st.warning("É necessário aceitar a política de privacidade para continuar.")
+            else:
+                try:
+                    response = sign_up(name, email_new, password_new)
+                    if response.session:
+                        session = response.session
+                        st.session_state.auth_access_token = session.access_token
+                        st.session_state.auth_refresh_token = session.refresh_token
+                        st.session_state.auth_user = response.user
+                        profile = ensure_profile(session.access_token, session.refresh_token, response.user)
+                        log_event(session.access_token, session.refresh_token, "signup")
+                        st.session_state.profile = profile
+                        st.success("Conta criada com sucesso!")
+                        st.rerun()
+                    else:
+                        st.success("Cadastro recebido. Verifique seu e-mail para confirmar a conta e depois faça login.")
+                except Exception as exc:
+                    st.error(f"Não foi possível criar a conta: {exc}")
+    with tab_reset:
+        with st.form("reset_form"):
+            reset_email = st.text_input("E-mail cadastrado")
+            reset = st.form_submit_button("Enviar link de recuperação", use_container_width=True)
+        if reset:
+            try:
+                send_password_reset(reset_email)
+                st.success("Se o e-mail estiver cadastrado, você receberá as instruções de recuperação.")
+            except Exception as exc:
+                st.error(f"Não foi possível solicitar a recuperação: {exc}")
 
 
-# ============================================================
-# CONTEXTO COMPLETO DO CANDIDATO
-# ============================================================
-
-def contexto_completo():
-
-    contexto = st.session_state.get(
-        "contexto_vaga"
-    ) or {}
-
+def get_context_text(ctx):
     return f"""
-
-EMPRESA:
-{contexto.get('empresa', 'Não informada')}
-
-CARGO:
-{contexto.get('cargo', 'Não informado')}
-
-DESCRIÇÃO E REQUISITOS DA VAGA:
-{contexto.get('descricao', 'Não informado')}
-
-SOBRE A EMPRESA:
-{contexto.get('sobre_empresa', 'Não informado')}
-
-LINK DO LINKEDIN:
-{st.session_state.get('linkedin_url') or 'Não informado'}
-
-CURRÍCULO DO CANDIDATO:
-{st.session_state.get('curriculo_texto') or 'Não anexado'}
-
-DIRETRIZES GERAIS DA CURADORIA:
-{INSIGHTS_GERAIS}
-
+EMPRESA: {ctx.get('empresa','')}
+CARGO: {ctx.get('cargo','')}
+DESCRIÇÃO DA VAGA: {ctx.get('descricao','')}
+SOBRE A EMPRESA: {ctx.get('sobre_empresa','')}
+LINKEDIN: {ctx.get('linkedin_url','')}
+CURRÍCULO: {ctx.get('curriculo_texto','')}
+DIRETRIZES DA CURADORIA: {INSIGHTS_GERAIS}
 """
 
 
-# ============================================================
-# AVALIAÇÃO PERSONALIZADA
-# ============================================================
-
-def avaliar_resposta_com_gemini(
-    client,
-    contexto,
-    pergunta,
-    resposta,
-    metadados
-):
-
-    prompt = f"""
-
-Você é um avaliador sênior de recrutamento,
-desenvolvimento de talentos e entrevistas.
-
-Avalie a resposta de forma criteriosa,
-construtiva, específica e personalizada.
-
-CONTEXTO DA VAGA E DO CANDIDATO:
-
-{contexto}
-
-PERGUNTA:
-
-{pergunta}
-
-TÉCNICA INDICADA PELA CURADORIA:
-
-{metadados.get('tecnica', 'Escolha a estrutura mais adequada.')}
-
-O QUE A PERGUNTA BUSCA AVALIAR:
-
-{metadados.get('expectativa', '')}
-
-DIRETRIZES DA CURADORIA:
-
-{INSIGHTS_GERAIS}
-
-RESPOSTA DO CANDIDATO:
-
-{resposta}
-
-
-REGRAS DE AVALIAÇÃO:
-
-- Não force a metodologia STAR em todas as perguntas.
-
-- Respeite a técnica indicada pela curadoria e adapte
-  os critérios ao tipo de pergunta.
-
-- Para perguntas comportamentais, avalie contexto,
-  responsabilidade individual, ações concretas,
-  decisões e resultados.
-
-- Para perguntas de trajetória, apresentação e motivação,
-  avalie narrativa, coerência, passado, presente e futuro.
-
-- Para perguntas sobre pontos fortes e fracos,
-  avalie autenticidade, evidências e autoconhecimento.
-
-- Para perguntas técnicas, avalie precisão, profundidade,
-  contexto de aplicação e honestidade sobre o nível de domínio.
-
-- Não invente experiências, números, resultados,
-  competências ou fatos sobre o candidato.
-
-- Utilize o currículo e as informações fornecidas
-  para apontar conexões reais.
-
-- Considere a vaga e a empresa para avaliar
-  relevância e alinhamento.
-
-
-FORMATO DA DEVOLUTIVA:
-
-1. DIAGNÓSTICO GERAL
-
-Qualidade e aderência da resposta.
-
-2. O QUE FUNCIONOU
-
-Pontos fortes específicos.
-
-3. O QUE PRECISA MELHORAR
-
-Lacunas, generalidades, falta de evidências
-ou excesso de informação.
-
-4. AVALIAÇÃO POR CRITÉRIOS
-
-Avalie de 1 a 5 os critérios pertinentes
-àquela pergunta.
-
-5. COMO FORTALECER
-
-Perguntas ou informações que ajudariam
-a enriquecer a resposta.
-
-6. VERSÃO APRIMORADA
-
-Proponha uma versão mais forte, natural e autêntica,
-utilizando somente fatos fornecidos.
-
-Marque entre colchetes informações que ainda
-precisem ser preenchidas.
-
-7. DICA PARA A ENTREVISTA
-
-Uma orientação prática e objetiva.
-
-Não atribua uma nota artificialmente alta.
-Seja exigente, respeitoso e didático.
-
-"""
-
-    return gerar_conteudo(
-        client,
-        prompt
-    )
-
-
-# ============================================================
-# TRANSCRIÇÃO DE ÁUDIO
-# ============================================================
-
-def transcrever_audio(client, audio_file):
-
-    audio_bytes = audio_file.getvalue()
-
-    mime_type = audio_file.type or "audio/wav"
-
-    prompt = """
-
-Transcreva fielmente, em português,
-o áudio de resposta de entrevista a seguir.
-
-Preserve o sentido e as palavras do candidato.
-
-Não avalie nem reescreva.
-
-Retorne somente a transcrição.
-
-Se houver trechos inaudíveis,
-sinalize como [trecho inaudível].
-
-"""
-
-    audio_part = types.Part.from_bytes(
-        data=audio_bytes,
-        mime_type=mime_type,
-    )
-
-    result = client.models.generate_content(
-        model=MODEL,
-        contents=[
-            prompt,
-            audio_part
-        ],
-    )
-
-    return result.text or ""
-
-
-# ============================================================
-# AUTENTICAÇÃO DA API
-# ============================================================
-
-api_key = obter_api_key()
-
-if not api_key:
-
-    st.markdown("""
-    <div class="editorial-card"
-         style="border-left:4px solid #A35C44;">
-
-        <h3 style="margin-top:0; color:#A35C44 !important;">
-            Configuração necessária
-        </h3>
-
-        <p>
-            A chave da API do Gemini não foi encontrada.
-        </p>
-
-        <p>
-            Adicione GEMINI_API_KEY em Settings → Secrets
-            no Streamlit Cloud ou como variável de ambiente.
-        </p>
-
-    </div>
-    """, unsafe_allow_html=True)
-
+def extract_resume(uploaded):
+    raw = uploaded.getvalue()
+    ext = uploaded.name.lower().rsplit(".", 1)[-1]
+    if ext == "pdf":
+        text = "\n".join(page.extract_text() or "" for page in PdfReader(io.BytesIO(raw)).pages)
+    elif ext == "docx":
+        doc = Document(io.BytesIO(raw))
+        text = "\n".join(p.text for p in doc.paragraphs)
+        for table in doc.tables:
+            for row in table.rows:
+                text += "\n" + " | ".join(cell.text for cell in row.cells)
+    else:
+        text = raw.decode("utf-8", errors="replace")
+    return text.strip(), raw
+
+
+def save_resume_to_storage(access, refresh, uploaded, raw):
+    client = get_user_client(access, refresh)
+    user = client.auth.get_user().user
+    safe_name = uploaded.name.replace("/", "_").replace("\\", "_")
+    path = f"{user.id}/{uuid.uuid4().hex}_{safe_name}"
+    mime = uploaded.type or "application/octet-stream"
+    client.storage.from_("candidate-resumes").upload(path, raw, {"content-type": mime, "upsert": "true"})
+    return path
+
+
+def show_feedback(items):
+    for item in items:
+        with st.expander(f"{item.get('question','Pergunta')} · {item.get('created_at','')[:10]}", expanded=False):
+            st.markdown("**Resposta**")
+            st.write(item.get("answer_text", ""))
+            evaluations = item.get("evaluations") or []
+            if isinstance(evaluations, dict):
+                evaluations = [evaluations]
+            for evaluation in evaluations:
+                st.markdown("**Avaliação**")
+                st.markdown(evaluation.get("feedback", ""))
+
+
+def candidate_app():
+    access, refresh = st.session_state.auth_access_token, st.session_state.auth_refresh_token
+    user = st.session_state.auth_user
+    profile = st.session_state.profile
+    name = profile.get("full_name") or user.email
+    st.sidebar.markdown(f"### Olá, {name.split()[0]}")
+    st.sidebar.caption(user.email)
+    sections = ["Início", "Nova simulação", "Histórico", "Meu perfil"]
+    nav_target = st.session_state.pop("nav_target", "Início")
+    nav_index = sections.index(nav_target) if nav_target in sections else 0
+    page = st.sidebar.radio("Navegação", sections, index=nav_index, key="candidate_navigation", label_visibility="collapsed")
+    if st.sidebar.button("Sair da conta", use_container_width=True):
+        log_event(access, refresh, "logout")
+        try:
+            sign_out(access, refresh)
+        except Exception:
+            pass
+        for key in ["auth_access_token", "auth_refresh_token", "auth_user", "profile", "active_simulation_id", "active_context"]:
+            st.session_state.pop(key, None)
+        st.rerun()
+
+    header()
+    if page == "Início":
+        st.markdown(f"## Bem-vinda(o), {name}.")
+        sims = list_simulations(access, refresh)
+        c1, c2 = st.columns(2)
+        c1.metric("Simulações realizadas", len(sims))
+        c2.metric("Em andamento", sum(1 for s in sims if s.get("status") == "in_progress"))
+        st.markdown("### Atividades recentes")
+        if sims:
+            for sim in sims[:5]:
+                with st.container(border=True):
+                    st.markdown(f"**{sim['company']} — {sim['position']}**")
+                    st.caption(f"{sim.get('created_at','')[:10]} · {sim.get('status','').replace('_',' ').title()}")
+                    if st.button("Abrir simulação", key=f"open_home_{sim['id']}"):
+                        st.session_state.selected_history_id = sim["id"]
+                        st.session_state.nav_target = "Histórico"
+                        st.rerun()
+        else:
+            st.info("Você ainda não criou uma simulação. Comece em ‘Nova simulação’.")
+
+    elif page == "Meu perfil":
+        st.markdown("## Meu perfil profissional")
+        client = get_user_client(access, refresh)
+        existing = client.table("professional_profiles").select("*").maybe_single().execute().data or {}
+        with st.form("profile_form"):
+            linkedin = st.text_input("Link do LinkedIn", value=existing.get("linkedin_url") or "")
+            resume = st.file_uploader("Atualizar currículo", type=["pdf", "docx", "txt"])
+            save = st.form_submit_button("Salvar perfil", type="primary")
+        if save:
+            if linkedin and not linkedin.startswith("https://"):
+                st.warning("Informe o LinkedIn usando um endereço https:// válido.")
+            else:
+                try:
+                    path, resume_name, resume_text = existing.get("resume_path"), existing.get("resume_name"), existing.get("resume_text", "")
+                    if resume:
+                        resume_text, raw = extract_resume(resume)
+                        path = save_resume_to_storage(access, refresh, resume, raw)
+                        resume_name = resume.name
+                    save_professional_profile(access, refresh, linkedin, path, resume_name, resume_text)
+                    st.success("Perfil atualizado.")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Erro ao salvar perfil: {exc}")
+        if existing.get("resume_name"):
+            st.caption(f"Currículo salvo: {existing['resume_name']}")
+
+    elif page == "Nova simulação":
+        st.markdown("## Contexto da vaga")
+        st.caption("Preencha os dados da oportunidade. Empresa, cargo e descrição são obrigatórios.")
+        client = get_user_client(access, refresh)
+        professional = client.table("professional_profiles").select("*").maybe_single().execute().data or {}
+        with st.form("new_simulation_form"):
+            col1, col2 = st.columns(2)
+            company = col1.text_input("Nome da empresa")
+            position = col2.text_input("Cargo / posição desejada")
+            description = st.text_area("Descrição e requisitos da vaga", height=140)
+            about = st.text_area("Sobre a empresa — descrição, cultura, valores etc.", height=120)
+            linkedin = st.text_input("Link do LinkedIn (opcional)", value=professional.get("linkedin_url") or "")
+            use_profile_cv = st.checkbox("Utilizar o currículo salvo no meu perfil", value=bool(professional.get("resume_text")))
+            resume = st.file_uploader("Ou anexar currículo para esta simulação (opcional)", type=["pdf", "docx", "txt"])
+            submit = st.form_submit_button("Salvar contexto e iniciar simulação", type="primary")
+        if submit:
+            if not company.strip() or not position.strip() or not description.strip():
+                st.warning("Preencha empresa, cargo e descrição da vaga.")
+            elif linkedin and not linkedin.startswith("https://"):
+                st.warning("Informe um link válido iniciado por https://.")
+            else:
+                try:
+                    resume_text = professional.get("resume_text", "") if use_profile_cv else ""
+                    resume_name = professional.get("resume_name", "") if use_profile_cv else ""
+                    resume_path = professional.get("resume_path") if use_profile_cv else None
+                    if resume:
+                        resume_text, raw = extract_resume(resume)
+                        resume_name = resume.name
+                        resume_path = save_resume_to_storage(access, refresh, resume, raw)
+                    context = {"empresa": company.strip(), "cargo": position.strip(), "descricao": description.strip(), "sobre_empresa": about.strip(), "linkedin_url": linkedin.strip(), "curriculo_texto": resume_text, "curriculo_nome": resume_name}
+                    sim_id = create_simulation(access, refresh, context)
+                    save_professional_profile(access, refresh, linkedin.strip(), resume_path, resume_name, resume_text)
+                    st.session_state.active_simulation_id = sim_id
+                    st.session_state.active_context = context
+                    st.session_state.sim_stage = "Perguntas"
+                    st.session_state.current_evaluation = None
+                    st.session_state.chat_history = []
+                    log_event(access, refresh, "simulation_created", {"simulation_id": sim_id})
+                    st.success("Contexto salvo. Sua simulação está pronta.")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Não foi possível iniciar a simulação: {exc}")
+        if st.session_state.get("active_simulation_id"):
+            st.markdown("---")
+            render_simulation(access, refresh)
+
+    elif page == "Histórico":
+        st.markdown("## Meu histórico")
+        sims = list_simulations(access, refresh)
+        if not sims:
+            st.info("Suas simulações aparecerão aqui depois que você criar a primeira.")
+        else:
+            options = {f"{s['company']} — {s['position']} · {s.get('created_at','')[:10]}": s["id"] for s in sims}
+            labels = list(options.keys())
+            default_id = st.session_state.get("selected_history_id")
+            default_index = next((i for i, label in enumerate(labels) if options[label] == default_id), 0)
+            chosen = st.selectbox("Selecione uma simulação", labels, index=default_index)
+            sim_id = options[chosen]
+            sim, answers, messages = get_simulation_details(access, refresh, sim_id)
+            st.markdown(f"### {sim['company']} — {sim['position']}")
+            st.caption(f"Criada em {sim.get('created_at','')[:10]} · Status: {sim.get('status','').replace('_',' ').title()}")
+            st.write(sim.get("job_description", ""))
+            if answers:
+                st.markdown("### Perguntas, respostas e avaliações")
+                show_feedback(answers)
+            if messages:
+                st.markdown("### Conversas com o mentor")
+                for msg in messages:
+                    with st.chat_message(msg["role"]):
+                        st.markdown(msg["content"])
+            if st.button("Continuar esta simulação", type="primary"):
+                st.session_state.active_simulation_id = sim_id
+                st.session_state.active_context = {
+                    "empresa": sim["company"], "cargo": sim["position"], "descricao": sim["job_description"],
+                    "sobre_empresa": sim.get("company_about", ""), "linkedin_url": sim.get("linkedin_url", ""),
+                    "curriculo_nome": sim.get("resume_name", ""), "curriculo_texto": sim.get("resume_text", ""),
+                }
+                st.session_state.chat_history = [{"role": m["role"], "content": m["content"]} for m in messages]
+                st.session_state.sim_stage = "Perguntas"
+                st.session_state.nav_target = "Nova simulação"
+                st.rerun()
+
+
+def render_simulation(access, refresh):
+    sim_id = st.session_state.active_simulation_id
+    context = st.session_state.active_context
+    st.markdown(f"### {context['empresa']} — {context['cargo']}")
+    stage = st.radio("Etapas", ["Perguntas", "Mentor IA"], horizontal=True, key="sim_stage")
+    if stage == "Perguntas":
+        questions = list(PERGUNTAS_CURATORIA.keys())
+        question = st.selectbox("Selecione uma pergunta da curadoria", questions, key="question_select")
+        metadata = PERGUNTAS_CURATORIA[question]
+        with st.container(border=True):
+            st.markdown("**Técnica recomendada**")
+            st.write(metadata.get("tecnica", "Adequada ao tipo de pergunta"))
+            st.markdown("**O que a pergunta busca avaliar**")
+            st.write(metadata.get("expectativa", ""))
+        mode = st.radio("Como deseja responder?", ["Escrever resposta", "Gravar resposta em áudio"], horizontal=True, key="answer_mode")
+        answer = ""
+        if mode == "Escrever resposta":
+            answer = st.text_area("Sua resposta", height=220, placeholder="Responda como se estivesse diante do recrutador. Use exemplos reais e detalhes concretos.", key="candidate_answer")
+        else:
+            if hasattr(st, "audio_input"):
+                audio = st.audio_input("Gravar resposta")
+                if audio:
+                    st.audio(audio)
+                    if st.button("Transcrever áudio"):
+                        try:
+                            with st.spinner("Transcrevendo áudio..."):
+                                st.session_state.transcribed_answer = transcrever_audio(get_client(), audio)
+                        except Exception as exc:
+                            st.error(f"Erro na transcrição: {exc}")
+                    answer = st.text_area("Revise a transcrição", value=st.session_state.get("transcribed_answer", ""), height=180, key="transcribed_answer_edit")
+            else:
+                st.warning("Atualize o Streamlit para uma versão que ofereça st.audio_input.")
+        if st.button("Avaliar minha resposta", type="primary"):
+            if not answer.strip():
+                st.warning("Escreva ou grave uma resposta antes de avaliar.")
+            else:
+                try:
+                    with st.spinner("Avaliando sua resposta de acordo com a pergunta e a vaga..."):
+                        feedback = avaliar_resposta(get_client(), get_context_text(context), question, answer, metadata)
+                    save_answer(access, refresh, sim_id, question, metadata.get("tecnica", ""), metadata.get("expectativa", ""), answer, "audio_transcription" if mode.startswith("Gravar") else "text", feedback)
+                    st.session_state.current_evaluation = feedback
+                    st.session_state.last_question = question
+                    log_event(access, refresh, "answer_evaluated", {"simulation_id": sim_id})
+                    st.success("Resposta avaliada e salva no seu histórico.")
+                except Exception as exc:
+                    st.error(f"Não foi possível avaliar a resposta: {exc}")
+        if st.session_state.get("current_evaluation"):
+            st.markdown("---")
+            st.markdown("### Parecer do avaliador")
+            st.markdown(st.session_state.current_evaluation)
+            if st.button("Concluir simulação"):
+                update_simulation_status(access, refresh, sim_id, "completed")
+                st.success("Simulação marcada como concluída.")
+    else:
+        st.markdown("### Atelier de lapidação")
+        st.caption("O mentor considera os dados da vaga, seu currículo, LinkedIn informado, avaliações e pesquisa pública na internet quando pertinente.")
+        try:
+            _, answers, saved_messages = get_simulation_details(access, refresh, sim_id)
+            if "chat_history" not in st.session_state:
+                st.session_state.chat_history = [{"role": m["role"], "content": m["content"]} for m in saved_messages]
+        except Exception:
+            answers = []
+        for message in st.session_state.get("chat_history", []):
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+        prompt = st.chat_input("Peça ajuda para aprimorar sua resposta, pesquisar a empresa ou entender o que o recrutador espera...")
+        if prompt:
+            st.session_state.chat_history.append({"role": "user", "content": prompt})
+            save_chat_message(access, refresh, sim_id, "user", prompt)
+            with st.chat_message("user"):
+                st.markdown(prompt)
+            evaluation_text = "\n\n".join(a.get("feedback", "") for answer in answers for a in (answer.get("evaluations") or []))[-12000:]
+            history_text = "\n\n".join(f"{m['role'].upper()}: {m['content']}" for m in st.session_state.chat_history[-10:])
+            try:
+                with st.chat_message("assistant"):
+                    with st.spinner("Analisando o contexto e consultando fontes públicas quando necessário..."):
+                        response = mentor_chat(get_client(), get_context_text(context), st.session_state.get("last_question", ""), evaluation_text, history_text, prompt, web_search=True)
+                    st.markdown(response)
+                st.session_state.chat_history.append({"role": "assistant", "content": response})
+                save_chat_message(access, refresh, sim_id, "assistant", response)
+            except Exception as exc:
+                st.error(f"Não foi possível consultar o mentor: {exc}")
+
+
+def admin_app():
+    access, refresh = st.session_state.auth_access_token, st.session_state.auth_refresh_token
+    st.sidebar.markdown("### Administração")
+    page = st.sidebar.radio("Painel", ["Visão geral", "Históricos dos candidatos", "Logs de acesso"])
+    if st.sidebar.button("Sair da conta", use_container_width=True):
+        log_event(access, refresh, "logout")
+        try: sign_out(access, refresh)
+        except Exception: pass
+        for key in ["auth_access_token", "auth_refresh_token", "auth_user", "profile"]: st.session_state.pop(key, None)
+        st.rerun()
+    header("Painel administrativo — gestão e acompanhamento da plataforma.")
+    try:
+        users, simulations, logs = admin_overview(access, refresh)
+    except Exception as exc:
+        st.error(f"Não foi possível carregar o painel administrativo: {exc}")
+        st.stop()
+    if page == "Visão geral":
+        a, b, c = st.columns(3)
+        a.metric("Usuários cadastrados", len(users))
+        b.metric("Simulações", len(simulations))
+        c.metric("Eventos registrados", len(logs))
+        st.markdown("### Usuários recentes")
+        st.dataframe(users, use_container_width=True, hide_index=True)
+        st.markdown("### Simulações recentes")
+        st.dataframe(simulations, use_container_width=True, hide_index=True)
+    elif page == "Históricos dos candidatos":
+        if not simulations:
+            st.info("Ainda não existem simulações cadastradas.")
+        else:
+            options = {f"{s['company']} — {s['position']} · {s.get('created_at','')[:10]} · {s['user_id'][:8]}": s["id"] for s in simulations}
+            label = st.selectbox("Selecione uma simulação", list(options.keys()))
+            sim, answers, messages = admin_simulation_details(access, refresh, options[label])
+            log_event(access, refresh, "admin_viewed_simulation", {"simulation_id": options[label]})
+            st.markdown(f"### {sim['company']} — {sim['position']}")
+            st.caption(f"Identificador do candidato: {sim['user_id']} · {sim.get('created_at','')}")
+            st.markdown("**Descrição da vaga**")
+            st.write(sim.get("job_description", ""))
+            st.markdown("**Sobre a empresa**")
+            st.write(sim.get("company_about", ""))
+            show_feedback(answers)
+            if messages:
+                st.markdown("### Conversas com o mentor")
+                for message in messages:
+                    with st.chat_message(message["role"]): st.markdown(message["content"])
+    else:
+        st.markdown("### Registro de acessos e atividades")
+        st.dataframe(logs, use_container_width=True, hide_index=True)
+        st.caption("Os logs registram eventos de autenticação e atividades relevantes; não representam gravação de tela ou monitoramento contínuo.")
+
+
+# ------------------------- BOOT -------------------------
+if not secrets_ready():
+    header()
+    st.error("Configure SUPABASE_URL e SUPABASE_ANON_KEY nos Secrets do Streamlit antes de iniciar.")
+    st.code('SUPABASE_URL = "https://SEU-PROJETO.supabase.co"\nSUPABASE_ANON_KEY = "SUA_CHAVE_ANON_PUBLIC"\nGEMINI_API_KEY = "SUA_CHAVE_GEMINI"', language="toml")
     st.stop()
 
-
-client = genai.Client(api_key=api_key)
-
-
-# ============================================================
-# NAVEGAÇÃO PROGRESSIVA
-# ============================================================
-
-opcoes_etapas = [
-    "1. Contexto da vaga"
-]
-
-if st.session_state["etapa1_concluida"]:
-
-    opcoes_etapas.append(
-        "2. Painel de simulação"
-    )
-
-if st.session_state["etapa2_concluida"]:
-
-    opcoes_etapas.append(
-        "3. Lapidação e feedback"
-    )
-
-
-if "etapa_atual" not in st.session_state:
-
-    st.session_state["etapa_atual"] = opcoes_etapas[0]
-
-
-if st.session_state["etapa_atual"] not in opcoes_etapas:
-
-    st.session_state["etapa_atual"] = opcoes_etapas[-1]
-
-
-st.radio(
-    "Etapas",
-    options=opcoes_etapas,
-    horizontal=True,
-    key="etapa_atual",
-    label_visibility="collapsed",
-)
-
-st.markdown(
-    "<hr style='margin-top:.5rem;'>",
-    unsafe_allow_html=True
-)
-
-
-# ============================================================
-# ETAPA 1 — CONTEXTO DA VAGA
-# ============================================================
-
-if st.session_state["etapa_atual"] == "1. Contexto da vaga":
-
-    st.markdown("### Defina o contexto da vaga")
-
-    st.markdown(
-        """
-        <p class='small-muted'>
-        Informe os dados da oportunidade para que a simulação
-        e as recomendações sejam relevantes para o processo seletivo.
-        </p>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    contexto_existente = (
-        st.session_state.get("contexto_vaga") or {}
-    )
-
-    c1, c2 = st.columns(2, gap="large")
-
-    with c1:
-
-        empresa = st.text_input(
-            "Nome da empresa",
-            value=contexto_existente.get("empresa", ""),
-            placeholder="Ex.: Banco ABC, Google, escritório...",
-        )
-
-    with c2:
-
-        cargo = st.text_input(
-            "Cargo / posição desejada",
-            value=contexto_existente.get("cargo", ""),
-            placeholder="Ex.: Estagiário(a), Analista, Desenvolvedor(a)...",
-        )
-
-
-    descricao = st.text_area(
-        "Descrição e requisitos da vaga",
-        value=contexto_existente.get("descricao", ""),
-        placeholder="Cole a descrição da oportunidade, responsabilidades e requisitos...",
-        height=150,
-    )
-
-
-    sobre_empresa = st.text_area(
-        "Sobre a empresa — descrição, cultura, valores etc.",
-        value=contexto_existente.get("sobre_empresa", ""),
-        placeholder="Compartilhe o que sabe sobre a empresa, sua cultura, valores, produtos, missão e estratégia...",
-        height=130,
-    )
-
-
-    st.markdown(
-        "#### Informações complementares (opcionais)"
-    )
-
-    col_link, col_cv = st.columns(
-        [1, 1],
-        gap="large"
-    )
-
-    with col_link:
-
-        linkedin_url = st.text_input(
-            "Link do LinkedIn",
-            value=st.session_state.get("linkedin_url", ""),
-            placeholder="https://www.linkedin.com/in/seu-perfil/",
-            help="O acesso a perfis pode ser limitado pelas configurações de privacidade do LinkedIn.",
-        )
-
-    with col_cv:
-
-        curriculo = st.file_uploader(
-            "Anexar currículo",
-            type=["pdf", "docx", "txt"],
-            help="Formatos aceitos: PDF, DOCX e TXT.",
-        )
-
-
-    if curriculo is not None:
-
-        try:
-
-            texto_cv, nome_cv = extrair_texto_curriculo(
-                curriculo
-            )
-
-            st.session_state["curriculo_texto"] = texto_cv
-
-            st.session_state["curriculo_nome"] = nome_cv
-
-            st.session_state["curriculo_bytes"] = (
-                curriculo.getvalue()
-            )
-
-            st.caption(
-                f"Currículo carregado: {nome_cv}"
-            )
-
-            if not texto_cv:
-
-                st.warning(
-                    "O arquivo foi anexado, mas não foi possível extrair texto. "
-                    "Se for um PDF digitalizado, tente uma versão com texto selecionável."
-                )
-
-        except Exception as exc:
-
-            st.error(
-                f"Não foi possível ler o currículo: {exc}"
-            )
-
-
-    if (
-        st.session_state.get("curriculo_nome")
-        and curriculo is None
-    ):
-
-        st.caption(
-            "Currículo já carregado nesta sessão: "
-            + st.session_state["curriculo_nome"]
-        )
-
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-
-    if st.button(
-        "Salvar contexto e avançar",
-        type="primary"
-    ):
-
-        if (
-            not empresa.strip()
-            or not cargo.strip()
-            or not descricao.strip()
-        ):
-
-            st.warning(
-                "Preencha pelo menos empresa, cargo e descrição/requisitos da vaga."
-            )
-
-        elif linkedin_url and not linkedin_url.startswith(
-            ("https://", "http://")
-        ):
-
-            st.warning(
-                "Informe um link válido, começando com https:// ou http://."
-            )
-
-        else:
-
-            st.session_state["contexto_vaga"] = {
-
-                "empresa": empresa.strip(),
-
-                "cargo": cargo.strip(),
-
-                "descricao": descricao.strip(),
-
-                "sobre_empresa": sobre_empresa.strip(),
-
-            }
-
-            st.session_state["linkedin_url"] = (
-                linkedin_url.strip()
-            )
-
-            st.session_state["etapa1_concluida"] = True
-
-            st.session_state["etapa_atual"] = (
-                "2. Painel de simulação"
-            )
-
-            st.success(
-                "Contexto salvo. A etapa de simulação foi liberada."
-            )
-
-            st.rerun()
-
-
-# ============================================================
-# ETAPA 2 — SIMULAÇÃO
-# ============================================================
-
-elif st.session_state["etapa_atual"] == "2. Painel de simulação":
-
-    st.markdown(
-        "### Simulação de pergunta e resposta"
-    )
-
-    st.markdown(
-        """
-        <p class='small-muted'>
-        Selecione uma pergunta da curadoria, escolha como responder
-        e receba uma avaliação ajustada ao objetivo daquela pergunta.
-        </p>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-    perguntas = list(
-        PERGUNTAS_CURATORIA.keys()
-    )
-
-
-    pergunta = st.selectbox(
-        "Perguntas disponíveis na curadoria",
-
-        options=perguntas,
-
-        index=(
-            perguntas.index(
-                st.session_state["pergunta_selecionada"]
-            )
-            if st.session_state.get("pergunta_selecionada") in perguntas
-            else 0
-        ),
-    )
-
-
-    st.session_state["pergunta_selecionada"] = pergunta
-
-    metadados = PERGUNTAS_CURATORIA[pergunta]
-
-
-    with st.container(border=True):
-
-        st.markdown("**Técnica recomendada**")
-
-        st.write(
-            metadados.get(
-                "tecnica",
-                "A definir conforme a pergunta."
-            )
-        )
-
-        st.markdown(
-            "**O que esta pergunta busca avaliar**"
-        )
-
-        st.write(
-            metadados.get("expectativa", "")
-        )
-
-
-    modo_resposta = st.radio(
-        "Como deseja responder?",
-
-        [
-            "Escrever resposta",
-            "Gravar resposta em áudio"
-        ],
-
-        horizontal=True,
-    )
-
-
-    resposta_final = ""
-
-
-    # --------------------------------------------------------
-    # RESPOSTA ESCRITA
-    # --------------------------------------------------------
-
-    if modo_resposta == "Escrever resposta":
-
-        resposta_final = st.text_area(
-            "Sua resposta",
-
-            placeholder=(
-                "Responda como se estivesse diante do recrutador. "
-                "Use exemplos reais e detalhes concretos..."
-            ),
-
-            height=220,
-
-            key="resposta_texto",
-        )
-
-
-    # --------------------------------------------------------
-    # RESPOSTA EM ÁUDIO
-    # --------------------------------------------------------
-
+if not st.session_state.get("auth_access_token") or not st.session_state.get("auth_refresh_token"):
+    login_screen()
+    st.stop()
+
+try:
+    # Revalidates the current session on each Streamlit rerun.
+    auth_client = get_user_client(st.session_state.auth_access_token, st.session_state.auth_refresh_token)
+    current_user = auth_client.auth.get_user().user
+    st.session_state.auth_user = current_user
+    if not st.session_state.get("profile"):
+        st.session_state.profile = ensure_profile(st.session_state.auth_access_token, st.session_state.auth_refresh_token, current_user)
+    if is_admin(st.session_state.auth_access_token, st.session_state.auth_refresh_token):
+        admin_app()
     else:
-
-        st.caption(
-            "Grave sua resposta diretamente pelo microfone do dispositivo."
-        )
-
-        if hasattr(st, "audio_input"):
-
-            audio = st.audio_input(
-                "Gravar resposta"
-            )
-
-            if audio is not None:
-
-                st.audio(audio)
-
-                if st.button("Transcrever áudio"):
-
-                    with st.spinner(
-                        "Transcrevendo sua resposta..."
-                    ):
-
-                        try:
-
-                            st.session_state["audio_transcrito"] = (
-                                transcrever_audio(
-                                    client,
-                                    audio
-                                )
-                            )
-
-                            st.success(
-                                "Transcrição concluída. Revise o texto antes de avaliar."
-                            )
-
-                        except Exception as exc:
-
-                            st.error(
-                                f"Não foi possível transcrever o áudio: {exc}"
-                            )
-
-
-                if st.session_state.get("audio_transcrito"):
-
-                    resposta_final = st.text_area(
-                        "Transcrição para revisão",
-
-                        value=st.session_state["audio_transcrito"],
-
-                        height=180,
-
-                        key="audio_transcrito_editavel",
-                    )
-
-        else:
-
-            st.warning(
-                "A gravação de áudio exige uma versão recente do Streamlit. "
-                "Atualize com: pip install --upgrade streamlit"
-            )
-
-
-    # --------------------------------------------------------
-    # AVALIAÇÃO
-    # --------------------------------------------------------
-
-    if st.button(
-        "Avaliar minha resposta",
-        type="primary"
-    ):
-
-        if not resposta_final.strip():
-
-            st.warning(
-                "Escreva ou grave uma resposta antes de solicitar a avaliação."
-            )
-
-        else:
-
-            with st.spinner(
-                "Analisando sua resposta em relação à pergunta e à vaga..."
-            ):
-
-                try:
-
-                    resultado = avaliar_resposta_com_gemini(
-                        client=client,
-
-                        contexto=contexto_completo(),
-
-                        pergunta=pergunta,
-
-                        resposta=resposta_final,
-
-                        metadados=metadados,
-                    )
-
-
-                    st.session_state["ultima_avaliacao"] = (
-                        resultado
-                    )
-
-
-                    st.session_state["avaliacoes"].append({
-
-                        "pergunta": pergunta,
-
-                        "resposta": resposta_final,
-
-                        "avaliacao": resultado,
-
-                    })
-
-
-                    st.session_state["etapa2_concluida"] = True
-
-
-                    st.success(
-                        "Avaliação concluída. A etapa de lapidação foi liberada."
-                    )
-
-
-                except Exception as exc:
-
-                    st.error(
-                        f"Erro ao avaliar a resposta: {exc}"
-                    )
-
-
-    # --------------------------------------------------------
-    # RESULTADO
-    # --------------------------------------------------------
-
-    if st.session_state.get("ultima_avaliacao"):
-
-        st.markdown("---")
-
-        st.markdown(
-            "### Parecer do avaliador"
-        )
-
-        st.markdown(
-            st.session_state["ultima_avaliacao"]
-        )
-
-
-    # --------------------------------------------------------
-    # AVANÇAR PARA ETAPA 3
-    # --------------------------------------------------------
-
-    if st.session_state["etapa2_concluida"]:
-
-        st.markdown("---")
-
-        if st.button(
-            "Avançar para lapidação e feedback"
-        ):
-
-            st.session_state["etapa_atual"] = (
-                "3. Lapidação e feedback"
-            )
-
-            st.rerun()
-
-
-# ============================================================
-# ETAPA 3 — LAPIDAÇÃO E FEEDBACK
-# ============================================================
-
-elif st.session_state["etapa_atual"] == "3. Lapidação e feedback":
-
-    st.markdown(
-        "### Atelier de lapidação"
-    )
-
-    st.markdown(
-        """
-        <p class='small-muted'>
-        Converse com seu mentor de carreira. A IA considera seu contexto,
-        currículo, informações da oportunidade e pode pesquisar
-        fontes públicas na internet.
-        </p>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-    # --------------------------------------------------------
-    # CONTEXTO UTILIZADO
-    # --------------------------------------------------------
-
-    with st.expander(
-        "Contexto utilizado pelo mentor",
-        expanded=False
-    ):
-
-        ctx = (
-            st.session_state.get("contexto_vaga") or {}
-        )
-
-        st.write(
-            f"**Empresa:** {ctx.get('empresa', '')}"
-        )
-
-        st.write(
-            f"**Cargo:** {ctx.get('cargo', '')}"
-        )
-
-        st.write(
-            "**Currículo:** "
-            + (
-                st.session_state.get("curriculo_nome")
-                or "Não anexado"
-            )
-        )
-
-        st.write(
-            "**LinkedIn:** "
-            + (
-                st.session_state.get("linkedin_url")
-                or "Não informado"
-            )
-        )
-
-        st.caption(
-            "O link do LinkedIn é uma referência. "
-            "O acesso ao conteúdo do perfil pode ser restrito."
-        )
-
-
-    # --------------------------------------------------------
-    # HISTÓRICO DO CHAT
-    # --------------------------------------------------------
-
-    for msg in st.session_state["mensagens_chat"]:
-
-        with st.chat_message(msg["role"]):
-
-            st.markdown(
-                msg["content"]
-            )
-
-
-    prompt_usuario = st.chat_input(
-        "Ex.: Como posso conectar minha experiência aos requisitos desta vaga?"
-    )
-
-
-    # --------------------------------------------------------
-    # RESPOSTA DO MENTOR
-    # --------------------------------------------------------
-
-    if prompt_usuario:
-
-        st.session_state["mensagens_chat"].append({
-
-            "role": "user",
-
-            "content": prompt_usuario,
-
-        })
-
-
-        with st.chat_message("user"):
-
-            st.markdown(
-                prompt_usuario
-            )
-
-
-        historico = (
-            st.session_state["mensagens_chat"][-12:]
-        )
-
-
-        historico_formatado = "\n\n".join(
-
-            f"{'CANDIDATO' if m['role'] == 'user' else 'MENTOR'}: {m['content']}"
-
-            for m in historico
-
-        )
-
-
-        avaliacoes_anteriores = "\n\n".join(
-
-            [
-                f"""
-Pergunta: {a['pergunta']}
-
-Resposta: {a['resposta']}
-
-Feedback: {a['avaliacao']}
-"""
-                for a in st.session_state["avaliacoes"][-3:]
-            ]
-
-        ) or "Nenhuma avaliação anterior."
-
-
-        prompt_chat = f"""
-
-Você é o mentor de carreira do Interview Lab AI.
-
-Você possui experiência em recrutamento,
-entrevistas, desenvolvimento profissional
-e comunicação executiva.
-
-Use como fontes prioritárias as informações abaixo,
-sem inventar dados.
-
-CONTEXTO DO CANDIDATO E DA VAGA:
-
-{contexto_completo()}
-
-
-AVALIAÇÕES ANTERIORES DA SIMULAÇÃO:
-
-{avaliacoes_anteriores}
-
-
-HISTÓRICO RECENTE:
-
-{historico_formatado}
-
-
-MENSAGEM ATUAL:
-
-{prompt_usuario}
-
-
-INSTRUÇÕES:
-
-1. PERSONALIZAÇÃO
-
-Personalize suas respostas principalmente com base
-no currículo e nos dados fornecidos pelo candidato.
-
-Ajude a conectar experiências reais às exigências
-da vaga, sem criar experiências ou resultados.
-
-
-2. PESQUISA NA INTERNET
-
-Quando a pergunta envolver a empresa, a vaga,
-o setor, competências exigidas ou práticas de entrevista,
-pesquise informações públicas atuais na internet
-usando Google Search.
-
-Pesquise também o que recrutadores costumam avaliar
-em perguntas desse tipo.
-
-Priorize fontes confiáveis, páginas oficiais da empresa,
-descrições de vagas e referências reconhecidas de carreira.
-
-
-3. LINKEDIN
-
-Se o usuário fornecer um link do LinkedIn,
-tente localizar informações públicas indexadas
-associadas ao link ou ao perfil.
-
-Deixe claro quando não conseguir acessar
-ou confirmar o conteúdo.
-
-Nunca alegue ter lido o perfil se isso não ocorreu.
-
-
-4. CONFIABILIDADE
-
-Diferencie fatos confirmados, inferências e sugestões.
-
-Não invente dados da empresa.
-
-Não atribua ao candidato competências
-que não foram demonstradas.
-
-
-5. DESENVOLVIMENTO PROFISSIONAL
-
-Se faltarem informações pessoais para uma resposta
-mais forte, faça perguntas objetivas.
-
-Ajude o candidato a desenvolver respostas
-mais claras, estratégicas e autênticas.
-
-
-6. COMUNICAÇÃO
-
-Escreva em português, com clareza,
-profundidade e tom profissional.
-
-Evite respostas genéricas.
-
-Ao sugerir uma resposta de entrevista,
-preserve uma voz natural e autêntica.
-
-"""
-
-
-        with st.chat_message("assistant"):
-
-            with st.spinner(
-                "Analisando o contexto e pesquisando referências públicas..."
-            ):
-
-                try:
-
-                    resposta_ia = gerar_conteudo(
-                        client,
-                        prompt_chat,
-                        pesquisar_web=True
-                    )
-
-
-                    st.markdown(
-                        resposta_ia
-                    )
-
-
-                    st.session_state["mensagens_chat"].append({
-
-                        "role": "assistant",
-
-                        "content": resposta_ia,
-
-                    })
-
-
-                except Exception as exc:
-
-                    erro = (
-                        "Não foi possível consultar o mentor neste momento: "
-                        + str(exc)
-                    )
-
-                    st.error(
-                        erro
-                    )
-
-
-                    st.session_state["mensagens_chat"].append({
-
-                        "role": "assistant",
-
-                        "content": erro,
-
-                    })
-
-
-    # --------------------------------------------------------
-    # CONTROLES DO CHAT
-    # --------------------------------------------------------
-
-    st.markdown("---")
-
-    col_a, col_b = st.columns(
-        [1, 1]
-    )
-
-    with col_a:
-
-        if st.button(
-            "Limpar conversa"
-        ):
-
-            st.session_state["mensagens_chat"] = []
-
-            st.rerun()
-
-
-    with col_b:
-
-        if st.button(
-            "Voltar à simulação"
-        ):
-
-            st.session_state["etapa_atual"] = (
-                "2. Painel de simulação"
-            )
-
-            st.rerun()
+        candidate_app()
+except Exception as exc:
+    st.session_state.pop("auth_access_token", None)
+    st.session_state.pop("auth_refresh_token", None)
+    st.session_state.pop("auth_user", None)
+    st.session_state.pop("profile", None)
+    st.warning("Sua sessão expirou ou não pôde ser validada. Entre novamente.")
+    st.rerun()
