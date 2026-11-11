@@ -11,12 +11,21 @@ MODELOS_PREFERIDOS = [
     "gemini-2.5-flash-lite",
 ]
 
+# Tempo máximo (segundos) de cada chamada à API. Evita o "pensando para sempre".
+TIMEOUT_SEGUNDOS = 30
+
+# Guarda o último modelo que funcionou para não testar os outros toda vez.
+_MODELO_OK = None
+
 
 def get_client(api_key: str = None):
     key = api_key or os.getenv("GEMINI_API_KEY")
     if not key:
         raise ValueError("Chave GEMINI_API_KEY não encontrada.")
-    return genai.Client(api_key=key)
+    return genai.Client(
+        api_key=key,
+        http_options=types.HttpOptions(timeout=TIMEOUT_SEGUNDOS * 1000),  # milissegundos
+    )
 
 
 def _descobrir_modelos(client):
@@ -35,43 +44,73 @@ def _descobrir_modelos(client):
         return []
 
 
-def _lista_modelos(client):
+def _ordem_modelos():
     ordem = []
+    if _MODELO_OK:
+        ordem.append(_MODELO_OK)
     override = os.getenv("GEMINI_MODEL")
     if override:
         ordem.append(override)
     ordem.extend(MODELOS_PREFERIDOS)
-    # Descobre modelos disponíveis só se necessário (evita chamada extra a cada vez)
-    return ordem
+    vistos, final = set(), []
+    for m in ordem:
+        if m not in vistos:
+            vistos.add(m)
+            final.append(m)
+    return final
+
+
+def _config_rapida(config, model_name):
+    """Reduz o 'pensamento' do modelo para responder em segundos."""
+    try:
+        if model_name.startswith("gemini-2.5"):
+            tc = types.ThinkingConfig(thinking_budget=0)
+        else:
+            tc = types.ThinkingConfig(thinking_level="low")
+    except Exception:
+        return config
+    base = config if config is not None else types.GenerateContentConfig()
+    try:
+        return base.model_copy(update={"thinking_config": tc})
+    except Exception:
+        return config
 
 
 def _gerar(client, contents, config=None):
     """Tenta gerar conteúdo percorrendo modelos. Retorna (texto, erros)."""
+    global _MODELO_OK
     erros = []
     tentados = set()
 
     def tentar(model_name):
+        global _MODELO_OK
         if model_name in tentados:
             return None
         tentados.add(model_name)
-        try:
-            kwargs = {"model": model_name, "contents": contents}
-            if config is not None:
-                kwargs["config"] = config
-            resp = client.models.generate_content(**kwargs)
-            if resp and resp.text:
-                return resp.text
-            erros.append(f"{model_name}: resposta vazia")
-        except Exception as e:
-            erros.append(f"{model_name}: {e}")
+        for cfg in (_config_rapida(config, model_name), config):
+            try:
+                kwargs = {"model": model_name, "contents": contents}
+                if cfg is not None:
+                    kwargs["config"] = cfg
+                resp = client.models.generate_content(**kwargs)
+                if resp and resp.text:
+                    _MODELO_OK = model_name
+                    return resp.text
+                erros.append(f"{model_name}: resposta vazia")
+                return None
+            except Exception as e:
+                msg = str(e)
+                erros.append(f"{model_name}: {msg}")
+                # Só repete sem a config de 'thinking' se o erro for sobre isso
+                if "thinking" not in msg.lower():
+                    return None
         return None
 
-    for nome in _lista_modelos(client):
+    for nome in _ordem_modelos():
         texto = tentar(nome)
         if texto:
             return texto, erros
 
-    # Último recurso: pergunta à API quais modelos existem
     for nome in _descobrir_modelos(client):
         texto = tentar(nome)
         if texto:
@@ -107,7 +146,7 @@ def avaliar_resposta_completa(client, contexto: dict, pergunta: str, dados_pergu
     INSTRUÇÕES DE AVALIAÇÃO:
     1. Se houver áudio anexado, transcreva-o primeiro na íntegra.
     2. Avalie o alinhamento da resposta do candidato com os requisitos da vaga e a expectativa técnica da pergunta.
-    3. Retorne um parecer claro e estruturado contendo:
+    3. Seja direto e conciso. Retorne um parecer estruturado contendo:
        - Transcrição (se aplicável)
        - Diagnóstico Geral e % de Alinhamento (0 a 100%)
        - Análise Técnica da Estrutura da Resposta
@@ -131,11 +170,8 @@ def avaliar_resposta_completa(client, contexto: dict, pergunta: str, dados_pergu
     return "Não foi possível obter resposta da API do Gemini. Detalhes do erro:\n\n" + "\n\n".join(erros)
 
 
-def simular_chat_lapidacao_com_busca(client, historico_mensagens: list, contexto_vaga: dict,
-                                     pergunta: str, parecer_anterior: str):
-    """Chat de lapidação, com Google Search quando disponível."""
+def _montar_chat(historico_mensagens, contexto_vaga, pergunta, parecer_anterior):
     contexto_vaga = contexto_vaga or {}
-
     system_instruction = f"""
     Você é um mentor sênior de carreiras e recrutador de elite.
     Seu objetivo é ajudar o candidato a lapidar a resposta para a pergunta: "{pergunta}".
@@ -151,31 +187,72 @@ def simular_chat_lapidacao_com_busca(client, historico_mensagens: list, contexto
 
     DIRETRIZES:
     1. As informações fornecidas acima são suas referências principais.
-    2. Você pode realizar buscas na web se precisar validar novidades sobre a empresa, tendências ou requisitos.
-    3. Dê feedbacks elegantes, práticos e construa a melhor narrativa profissional possível com o candidato.
+    2. Use busca na web só se for realmente necessário (novidades da empresa, tendências).
+    3. Dê feedbacks elegantes, práticos e objetivos e construa a melhor narrativa profissional possível com o candidato.
     """
-
     contents = []
     for msg in historico_mensagens:
         role = "user" if msg.get("role") == "user" else "model"
         texto = msg.get("content", "")
         if str(texto).strip():
             contents.append(types.Content(role=role, parts=[types.Part.from_text(text=str(texto))]))
+    return system_instruction, contents
 
-    # 1ª tentativa: com busca na web
+
+def stream_chat_lapidacao(client, historico_mensagens: list, contexto_vaga: dict,
+                          pergunta: str, parecer_anterior: str):
+    """
+    Gerador que devolve o texto aos poucos (streaming), então a resposta
+    começa a aparecer em poucos segundos. Use com st.write_stream().
+    """
+    global _MODELO_OK
+    system_instruction, contents = _montar_chat(historico_mensagens, contexto_vaga, pergunta, parecer_anterior)
+
     config_busca = types.GenerateContentConfig(
         system_instruction=system_instruction,
         tools=[types.Tool(google_search=types.GoogleSearch())],
     )
-    texto, erros_busca = _gerar(client, contents, config_busca)
-    if texto:
-        return texto
-
-    # 2ª tentativa: sem ferramenta de busca
     config_simples = types.GenerateContentConfig(system_instruction=system_instruction)
-    texto, erros_simples = _gerar(client, contents, config_simples)
-    if texto:
-        return texto
 
-    detalhes = "\n\n".join(erros_simples or erros_busca)
-    return "Não foi possível gerar a resposta do chat no momento. Detalhes:\n\n" + detalhes
+    erros = []
+    tentados = set()
+    modelos = _ordem_modelos()
+
+    # Primeiro tenta SEM busca (mais rápido); a busca fica como segunda opção
+    for usar_busca in (False, True):
+        base = config_busca if usar_busca else config_simples
+        for nome in modelos:
+            chave = (nome, usar_busca)
+            if chave in tentados:
+                continue
+            tentados.add(chave)
+            for cfg in (_config_rapida(base, nome), base):
+                emitiu = False
+                try:
+                    for chunk in client.models.generate_content_stream(
+                        model=nome, contents=contents, config=cfg
+                    ):
+                        if chunk and chunk.text:
+                            emitiu = True
+                            yield chunk.text
+                    if emitiu:
+                        _MODELO_OK = nome
+                        return
+                    erros.append(f"{nome}: resposta vazia")
+                    break
+                except Exception as e:
+                    if emitiu:
+                        # Já mostrou parte do texto; encerra sem repetir
+                        return
+                    msg = str(e)
+                    erros.append(f"{nome}: {msg}")
+                    if "thinking" not in msg.lower():
+                        break
+
+    yield "Não foi possível gerar a resposta do chat no momento. Detalhes:\n\n" + "\n\n".join(erros)
+
+
+def simular_chat_lapidacao_com_busca(client, historico_mensagens: list, contexto_vaga: dict,
+                                     pergunta: str, parecer_anterior: str):
+    """Versão sem streaming (mantida por compatibilidade)."""
+    return "".join(stream_chat_lapidacao(client, historico_mensagens, contexto_vaga, pergunta, parecer_anterior))
