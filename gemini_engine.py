@@ -12,8 +12,7 @@ def get_client(api_key: str = None):
 
 def avaliar_resposta_completa(client, contexto: dict, pergunta: str, dados_pergunta: dict, resposta_texto: str = None, audio_bytes: bytes = None, audio_mime: str = "audio/wav"):
     """
-    Avalia a resposta do candidato (áudio ou texto) enviando os parâmetros no formato 
-    exigido pelo SDK google-genai.
+    Avalia a resposta do candidato (áudio ou texto) utilizando os modelos Gemini atualizados.
     """
     if not contexto:
         contexto = {}
@@ -54,27 +53,28 @@ def avaliar_resposta_completa(client, contexto: dict, pergunta: str, dados_pergu
 
     parts = []
 
-    # Se recebeu bytes de áudio válidos, insere o Part do áudio
+    # Se houver áudio, adiciona os bytes
     if audio_bytes and isinstance(audio_bytes, bytes) and len(audio_bytes) > 0:
         parts.append(types.Part.from_bytes(data=audio_bytes, mime_type=audio_mime))
 
-    # Insere o Part de texto
+    # Adiciona a instrução de texto
     parts.append(types.Part.from_text(text=prompt_texto))
 
-    # Executa com fallback seguro de modelos
+    # Lista de modelos válidos no SDK google-genai
+    erros = []
     for model_name in ['gemini-2.5-flash', 'gemini-1.5-flash']:
         try:
             response = client.models.generate_content(
                 model=model_name,
-                contents=types.Content(parts=parts)
+                contents=parts
             )
             if response and response.text:
                 return response.text
         except Exception as e:
-            last_err = str(e)
+            erros.append(f"{model_name}: {str(e)}")
             continue
-            
-    raise RuntimeError(f"Erro na API do Gemini: {last_err}")
+
+    return f"Não foi possível obter resposta da API do Gemini. Detalhes do erro:\n\n" + "\n".join(erros)
 
 def simular_chat_lapidacao_com_busca(client, historico_mensagens: list, contexto_vaga: dict, pergunta: str, parecer_anterior: str):
     """
@@ -115,12 +115,19 @@ def simular_chat_lapidacao_com_busca(client, historico_mensagens: list, contexto
                 )
             )
 
-    response = client.models.generate_content(
-        model='gemini-2.5-flash',
-        contents=contents,
-        config=types.GenerateContentConfig(
-            system_instruction=system_instruction,
-            tools=[{"google_search": {}}]
-        )
-    )
-    return response.text
+    for model_name in ['gemini-2.5-flash', 'gemini-1.5-flash']:
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_instruction,
+                    tools=[{"google_search": {}}]
+                )
+            )
+            if response and response.text:
+                return response.text
+        except Exception:
+            continue
+            
+    return "Não foi possível gerar a resposta do chat no momento."
