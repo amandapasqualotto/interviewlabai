@@ -1,5 +1,4 @@
 # gemini_engine.py
-import json
 import os
 from google import genai
 from google.genai import types
@@ -13,8 +12,8 @@ def get_client(api_key: str = None):
 
 def avaliar_resposta_completa(client, contexto: dict, pergunta: str, dados_pergunta: dict, resposta_texto: str = None, audio_bytes: bytes = None, audio_mime: str = "audio/wav"):
     """
-    Avalia a resposta do candidato (seja via áudio ou texto) garantindo a construção
-    correta das Parts para a SDK oficial da Google GenAI.
+    Avalia a resposta do candidato (áudio ou texto) utilizando
+    a estrutura nativa de partes da biblioteca google-genai.
     """
     if not contexto:
         contexto = {}
@@ -50,36 +49,38 @@ def avaliar_resposta_completa(client, contexto: dict, pergunta: str, dados_pergu
        - Reescrita Sugerida de Alto Impacto
     """
 
-    if resposta_texto and resposta_texto.strip():
-        prompt_texto += f"\n\nRESPOSTA ESCRITA DO CANDIDATO:\n{resposta_texto.strip()}"
+    if resposta_texto and str(resposta_texto).strip():
+        prompt_texto += f"\n\nRESPOSTA ESCRITA DO CANDIDATO:\n{str(resposta_texto).strip()}"
 
-    contents = []
+    parts = []
 
-    # Se recebeu bytes de áudio válidos, adiciona como parte de mídia
+    # Se houver áudio, adiciona os bytes no formato exigido
     if audio_bytes and isinstance(audio_bytes, bytes) and len(audio_bytes) > 0:
-        contents.append(types.Part.from_bytes(data=audio_bytes, mime_type=audio_mime))
+        parts.append(types.Part.from_bytes(data=audio_bytes, mime_type=audio_mime))
 
-    # Adiciona a parte de texto como Part explícita
-    contents.append(types.Part.from_text(text=prompt_texto))
+    # Adiciona a instrução de texto
+    parts.append(types.Part.from_text(text=prompt_texto))
 
-    try:
-        response = client.models.generate_content(
-            model='gemini-2.0-flash',
-            contents=contents
-        )
-        return response.text
-    except Exception as e:
-        # Fallback de segurança se o modelo 2.0 não responder no ambiente
-        response = client.models.generate_content(
-            model='gemini-1.5-flash',
-            contents=contents
-        )
-        return response.text
+    # Tenta primeiro com gemini-2.0-flash e faz fallback para gemini-1.5-flash
+    erros = []
+    for model_name in ['gemini-2.0-flash', 'gemini-1.5-flash']:
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=parts
+            )
+            if response and response.text:
+                return response.text
+        except Exception as e:
+            erros.append(f"{model_name}: {str(e)}")
+            continue
+
+    return f"Erro ao comunicar com a API do Gemini. Detalhes: {' | '.join(erros)}"
 
 def simular_chat_lapidacao_com_busca(client, historico_mensagens: list, contexto_vaga: dict, pergunta: str, parecer_anterior: str):
     """
     Chat interativo que utiliza busca na web (Google Search Grounding) para complementar
-    as informações da empresa, vaga e melhores práticas do mercado.
+    as informações da empresa e vaga.
     """
     if not contexto_vaga:
         contexto_vaga = {}
@@ -105,17 +106,25 @@ def simular_chat_lapidacao_com_busca(client, historico_mensagens: list, contexto
 
     contents = []
     for msg in historico_mensagens:
-        role = "user" if msg["role"] == "user" else "model"
+        role = "user" if msg.get("role") == "user" else "model"
         texto = msg.get("content", "")
-        if texto.strip():
-            contents.append({"role": role, "parts": [{"text": texto}]})
+        if str(texto).strip():
+            contents.append(
+                types.Content(
+                    role=role,
+                    parts=[types.Part.from_text(text=str(texto))]
+                )
+            )
 
-    response = client.models.generate_content(
-        model='gemini-2.0-flash',
-        contents=contents,
-        config=types.GenerateContentConfig(
-            system_instruction=system_instruction,
-            tools=[{"google_search": {}}]
+    try:
+        response = client.models.generate_content(
+            model='gemini-2.0-flash',
+            contents=contents,
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                tools=[{"google_search": {}}]
+            )
         )
-    )
-    return response.text
+        return response.text
+    except Exception as e:
+        return f"Erro no chat de lapidação: {str(e)}"
