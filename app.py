@@ -2,7 +2,7 @@ import os
 import streamlit as st
 from supabase import create_client, Client
 from curadoria import PERGUNTAS_CURATORIA
-from gemini_engine import get_client, avaliar_resposta_completa, simular_chat_lapidacao_com_busca
+from gemini_engine import get_client, avaliar_resposta_completa, stream_chat_lapidacao
 
 # Leitura opcional de arquivos de currículo
 try:
@@ -68,13 +68,28 @@ st.markdown("""
         color: #FFFFFF;
     }
 
-    /* Botões secundários centralizados (o Streamlit cria a classe .st-key-<key>) */
+    /* Faz o contêiner dos botões ocupar a largura toda da coluna (assim o alinhamento funciona) */
     .st-key-btn_toggle_cad,
     .st-key-btn_voltar_login1,
-    .st-key-btn_voltar_login2 {
-        display: flex;
-        justify-content: center;
+    .st-key-btn_voltar_login2,
+    .st-key-btn_logout {
+        width: 100% !important;
+        max-width: 100% !important;
     }
+    .st-key-btn_toggle_cad div[data-testid="stButton"],
+    .st-key-btn_voltar_login1 div[data-testid="stButton"],
+    .st-key-btn_voltar_login2 div[data-testid="stButton"] {
+        display: flex !important;
+        justify-content: center !important;
+        width: 100% !important;
+    }
+    .st-key-btn_logout div[data-testid="stButton"] {
+        display: flex !important;
+        justify-content: flex-end !important;
+        width: 100% !important;
+    }
+
+    /* Botões secundários (Criar nova conta / Voltar ao Login) */
     .st-key-btn_toggle_cad button,
     .st-key-btn_voltar_login1 button,
     .st-key-btn_voltar_login2 button {
@@ -92,11 +107,7 @@ st.markdown("""
         border-color: #C8C2B7 !important;
     }
 
-    /* Botão Sair da Sessão: logo abaixo do nome, alinhado à direita */
-    .st-key-btn_logout {
-        display: flex;
-        justify-content: flex-end;
-    }
+    /* Botão Sair da Sessão: abaixo do nome, alinhado à direita */
     .st-key-btn_logout button {
         width: auto !important;
         padding: 0.45rem 1.1rem;
@@ -466,7 +477,7 @@ elif etapa_atual == ETAPA_2:
         if not resposta_texto and not audio_bytes:
             st.warning("Por favor, forneça uma resposta em texto ou grave um áudio.")
         else:
-            with st.spinner("Analisando alinhamento estratégico com o Gemini..."):
+            with st.spinner("Analisando alinhamento estratégico"):
                 resultado = avaliar_resposta_completa(
                     client=client,
                     contexto=st.session_state.get("contexto_vaga", {}),
@@ -521,15 +532,15 @@ elif etapa_atual == ETAPA_3:
             st.markdown(prompt_usuario)
 
         with st.chat_message("assistant"):
-            with st.spinner("Buscando dados adicionais no mercado e estruturando feedback..."):
-                resposta_ia = simular_chat_lapidacao_com_busca(
+            resposta_ia = st.write_stream(
+                stream_chat_lapidacao(
                     client=client,
                     historico_mensagens=st.session_state["mensagens_chat"],
                     contexto_vaga=st.session_state.get("contexto_vaga", {}),
                     pergunta=st.session_state.get("ultima_pergunta", "Pergunta Comportamental"),
                     parecer_anterior=st.session_state.get("ultima_avaliacao", "")
                 )
-            st.markdown(resposta_ia)
+            )
 
         st.session_state["mensagens_chat"].append({"role": "assistant", "content": resposta_ia})
         salvar_progresso_banco(st.session_state["usuario_logado"])
