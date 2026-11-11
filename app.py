@@ -72,31 +72,43 @@ st.markdown("""
         color: #FFFFFF;
     }
 
-    /* Estilização Botão Secundário (Criar Nova Conta - Fundo Cinza e Texto Escuro) */
-    div[key="btn_toggle_cad"] > button, div[key="btn_voltar_login1"] > button, div[key="btn_voltar_login2"] > button {
+    /* Customização do Esqueci minha senha (Totalmente sem caixa, fundo ou borda) */
+    div[element-id*="btn_toggle_recup"] button, 
+    div[data-testid="stButton"] button:has(div:contains("Esqueci minha senha")) {
+        background-color: transparent !important;
+        background: none !important;
+        border: none !important;
+        box-shadow: none !important;
+        color: #787267 !important;
+        font-size: 0.88rem !important;
+        font-weight: 400 !important;
+        text-decoration: underline !important;
+        padding: 0 !important;
+        margin: 0.5rem auto !important;
+        display: block !important;
+        width: auto !important;
+    }
+    div[element-id*="btn_toggle_recup"] button:hover,
+    div[data-testid="stButton"] button:has(div:contains("Esqueci minha senha")):hover {
+        color: #111E16 !important;
+        background: transparent !important;
+    }
+
+    /* Customização do Botão Criar nova conta (Fundo cinza claro, texto escuro e centralizado) */
+    div[element-id*="btn_toggle_cad"] button,
+    div[data-testid="stButton"] button:has(div:contains("Criar nova conta")) {
         background-color: #E6E1D7 !important;
         color: #111E16 !important;
         border: 1px solid #DCD6CD !important;
-        max-width: 260px !important;
+        max-width: 280px !important;
         margin: 0 auto !important;
         display: block !important;
     }
-    div[key="btn_toggle_cad"] > button:hover, div[key="btn_voltar_login1"] > button:hover, div[key="btn_voltar_login2"] > button:hover {
+    div[element-id*="btn_toggle_cad"] button:hover,
+    div[data-testid="stButton"] button:has(div:contains("Criar nova conta")):hover {
         background-color: #DCD6CD !important;
         color: #111E16 !important;
         border-color: #C8C2B7 !important;
-    }
-
-    /* Link Texto 'Esqueci minha senha' estilo sutil */
-    .link-esqueci {
-        color: #787267;
-        font-size: 0.88rem;
-        text-decoration: underline;
-        cursor: pointer;
-        transition: color 0.2s ease;
-    }
-    .link-esqueci:hover {
-        color: #111E16;
     }
 
     /* Campos de Entrada */
@@ -216,28 +228,20 @@ if not st.session_state["usuario_logado"]:
                 else:
                     st.error("E-mail ou senha incorretos.")
 
-            # Texto limpo para "Esqueci minha senha"
-            st.markdown("""
-            <div style="text-align: center; margin-top: 0.8rem;">
-                <a href="?recuperar=true" target="_self" class="link-esqueci">Esqueci minha senha</a>
-            </div>
-            """, unsafe_allow_html=True)
-
-            # Captura de clique na recuperação
-            if st.query_params.get("recuperar") == "true":
-                st.query_params.clear()
+            # Esqueci minha senha sem caixa/fundo
+            if st.button("Esqueci minha senha", key="btn_toggle_recup"):
                 st.session_state["auth_mode"] = "recuperar"
                 st.rerun()
 
-            # Divisão sutil e centralizada
+            # Linha sutil de divisão e texto centralizado
             st.markdown("""
-            <div style="margin: 2rem 0 1.5rem 0; text-align: center;">
-                <hr style="border: none; border-top: 1px solid #E6E1D7; margin-bottom: 1.5rem;">
-                <p style="font-size: 0.88rem; color: #787267; margin-bottom: 0.8rem;">Ainda não possui um acesso?</p>
+            <div style="margin: 2rem 0 1.2rem 0; text-align: center;">
+                <hr style="border: none; border-top: 1px solid #E6E1D7; margin-bottom: 1.2rem;">
+                <p style="font-size: 0.88rem; color: #787267; margin-bottom: 0.5rem;">Ainda não possui um acesso?</p>
             </div>
             """, unsafe_allow_html=True)
 
-            # Botão Criar nova conta centralizado com fundo cinza
+            # Botão Criar nova conta centralizado em cinza claro com texto escuro
             if st.button("Criar nova conta", key="btn_toggle_cad"):
                 st.session_state["auth_mode"] = "cadastro"
                 st.rerun()
