@@ -1,7 +1,5 @@
 import os
-import io
 import streamlit as st
-from google import genai
 from supabase import create_client, Client
 from curadoria import PERGUNTAS_CURATORIA
 from gemini_engine import get_client, avaliar_resposta_completa, simular_chat_lapidacao_com_busca
@@ -43,17 +41,15 @@ st.markdown("""
         letter-spacing: -0.02em;
     }
 
-    /* Cartão Editorial Elevado */
-    .editorial-card {
+    /* Containers com borda (substituem os antigos cartões que geravam o bloco branco vazio) */
+    div[data-testid="stVerticalBlockBorderWrapper"] {
         background-color: #FFFFFF;
-        border: 1px solid #E6E1D7;
-        padding: 28px;
+        border-color: #E6E1D7 !important;
         border-radius: 8px;
         box-shadow: 0 4px 20px rgba(0,0,0,0.03);
-        margin-bottom: 24px;
     }
 
-    /* Estilização Botão Principal */
+    /* Botão principal */
     .stButton>button {
         background-color: #111E16;
         color: #FBF9F5;
@@ -72,22 +68,41 @@ st.markdown("""
         color: #FFFFFF;
     }
 
-    /* Estilização Botão Secundário (Criar Nova Conta - Fundo Cinza e Texto Escuro) */
-    div[key="btn_toggle_cad"] > button, div[key="btn_voltar_login1"] > button, div[key="btn_voltar_login2"] > button {
+    /* Botões secundários centralizados (o Streamlit cria a classe .st-key-<key>) */
+    .st-key-btn_toggle_cad,
+    .st-key-btn_voltar_login1,
+    .st-key-btn_voltar_login2 {
+        display: flex;
+        justify-content: center;
+    }
+    .st-key-btn_toggle_cad button,
+    .st-key-btn_voltar_login1 button,
+    .st-key-btn_voltar_login2 button {
         background-color: #E6E1D7 !important;
         color: #111E16 !important;
         border: 1px solid #DCD6CD !important;
-        max-width: 260px !important;
-        margin: 0 auto !important;
-        display: block !important;
+        width: 260px !important;
+        max-width: 100% !important;
     }
-    div[key="btn_toggle_cad"] > button:hover, div[key="btn_voltar_login1"] > button:hover, div[key="btn_voltar_login2"] > button:hover {
+    .st-key-btn_toggle_cad button:hover,
+    .st-key-btn_voltar_login1 button:hover,
+    .st-key-btn_voltar_login2 button:hover {
         background-color: #DCD6CD !important;
         color: #111E16 !important;
         border-color: #C8C2B7 !important;
     }
 
-    /* Link Texto 'Esqueci minha senha' estilo sutil */
+    /* Botão Sair da Sessão: logo abaixo do nome, alinhado à direita */
+    .st-key-btn_logout {
+        display: flex;
+        justify-content: flex-end;
+    }
+    .st-key-btn_logout button {
+        width: auto !important;
+        padding: 0.45rem 1.1rem;
+    }
+
+    /* Link 'Esqueci minha senha' */
     .link-esqueci {
         color: #787267;
         font-size: 0.88rem;
@@ -95,11 +110,9 @@ st.markdown("""
         cursor: pointer;
         transition: color 0.2s ease;
     }
-    .link-esqueci:hover {
-        color: #111E16;
-    }
+    .link-esqueci:hover { color: #111E16; }
 
-    /* Campos de Entrada */
+    /* Campos de entrada */
     .stTextInput>div>div>input, .stSelectbox>div>div>div, .stTextArea>div>div>textarea {
         background-color: #FAFAFA;
         border: 1px solid #DCD6CD;
@@ -116,6 +129,7 @@ st.markdown("""
     footer {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
+
 
 # Helper para ler arquivo de currículo
 def extrair_texto_curriculo(uploaded_file):
@@ -138,6 +152,7 @@ def extrair_texto_curriculo(uploaded_file):
         st.error(f"Erro ao ler arquivo do currículo: {e}")
     return texto
 
+
 # ============================================================
 # CONEXÃO COM SUPABASE & BANCO DE DADOS
 # ============================================================
@@ -150,7 +165,9 @@ def init_supabase() -> Client:
         st.stop()
     return create_client(url, key)
 
+
 supabase = init_supabase()
+
 
 def buscar_usuario(email):
     try:
@@ -159,12 +176,15 @@ def buscar_usuario(email):
     except Exception:
         return None
 
+
 def criar_usuario(nome, email, senha):
     data = {"email": email, "nome": nome, "senha": senha}
     return supabase.table("usuarios").insert(data).execute()
 
+
 def atualizar_senha_usuario(email, nova_senha):
     return supabase.table("usuarios").update({"senha": nova_senha}).eq("email", email).execute()
+
 
 def salvar_progresso_banco(email):
     dados_atualizados = {
@@ -174,8 +194,15 @@ def salvar_progresso_banco(email):
     }
     supabase.table("usuarios").update(dados_atualizados).eq("email", email).execute()
 
+
+def ir_para_etapa(nome_etapa):
+    """Agenda a troca de etapa; é aplicada no próximo rerun, antes do radio ser criado."""
+    st.session_state["_ir_para_etapa"] = nome_etapa
+    st.rerun()
+
+
 # ============================================================
-# TELA DE AUTENTICAÇÃO LIMPA E ALINHADA
+# TELA DE AUTENTICAÇÃO
 # ============================================================
 if "usuario_logado" not in st.session_state:
     st.session_state["usuario_logado"] = None
@@ -190,15 +217,15 @@ if not st.session_state["usuario_logado"]:
         <h1 style="font-size: 3.2rem; font-style: italic; margin-top: 0.2rem; margin-bottom: 0;">Interview Lab AI</h1>
     </div>
     """, unsafe_allow_html=True)
-    
+
     col_centered = st.columns([1, 1.2, 1])[1]
     with col_centered:
-        
-        # MODO 1: LOGIN PRINCIPAL
+
+        # MODO 1: LOGIN
         if st.session_state["auth_mode"] == "login":
             email = st.text_input("E-mail profissional", key="login_email")
             senha = st.text_input("Senha", type="password", key="login_senha")
-            
+
             st.write("")
             if st.button("Entrar na Conta ➔", key="btn_login"):
                 user = buscar_usuario(email)
@@ -208,36 +235,33 @@ if not st.session_state["usuario_logado"]:
                     st.session_state["contexto_vaga"] = user.get("contexto_vaga") or {}
                     st.session_state["avaliacoes"] = user.get("avaliacoes") or []
                     st.session_state["mensagens_chat"] = user.get("mensagens_chat") or []
-                    
+
                     st.session_state["etapa1_concluida"] = bool(st.session_state["contexto_vaga"].get("empresa"))
                     st.session_state["etapa2_concluida"] = len(st.session_state["avaliacoes"]) > 0
-                    st.session_state["etapa_selecionada"] = "1. Contexto da Vaga"
+                    st.session_state["etapa_radio_main"] = "1. Contexto da Vaga"
                     st.rerun()
                 else:
                     st.error("E-mail ou senha incorretos.")
 
-            # Texto limpo para "Esqueci minha senha"
             st.markdown("""
             <div style="text-align: center; margin-top: 0.8rem;">
                 <a href="?recuperar=true" target="_self" class="link-esqueci">Esqueci minha senha</a>
             </div>
             """, unsafe_allow_html=True)
 
-            # Captura de clique na recuperação
             if st.query_params.get("recuperar") == "true":
                 st.query_params.clear()
                 st.session_state["auth_mode"] = "recuperar"
                 st.rerun()
 
-            # Divisão sutil e centralizada
             st.markdown("""
-            <div style="margin: 2rem 0 1.5rem 0; text-align: center;">
+            <div style="margin: 2rem 0 0.5rem 0; text-align: center;">
                 <hr style="border: none; border-top: 1px solid #E6E1D7; margin-bottom: 1.5rem;">
-                <p style="font-size: 0.88rem; color: #787267; margin-bottom: 0.8rem;">Ainda não possui um acesso?</p>
+                <p style="font-size: 0.88rem; color: #787267; margin-bottom: 0.4rem;">Ainda não possui um acesso?</p>
             </div>
             """, unsafe_allow_html=True)
 
-            # Botão Criar nova conta centralizado com fundo cinza
+            # Botão centralizado logo abaixo do texto
             if st.button("Criar nova conta", key="btn_toggle_cad"):
                 st.session_state["auth_mode"] = "cadastro"
                 st.rerun()
@@ -257,24 +281,26 @@ if not st.session_state["usuario_logado"]:
                     criar_usuario(novo_nome, novo_email, nova_senha)
                     st.session_state["usuario_logado"] = novo_email
                     st.session_state["usuario_nome"] = novo_nome
+                    st.session_state["contexto_vaga"] = {}
+                    st.session_state["avaliacoes"] = []
+                    st.session_state["mensagens_chat"] = []
                     st.session_state["etapa1_concluida"] = False
                     st.session_state["etapa2_concluida"] = False
-                    st.session_state["etapa_selecionada"] = "1. Contexto da Vaga"
+                    st.session_state["etapa_radio_main"] = "1. Contexto da Vaga"
                     st.rerun()
                 else:
                     st.warning("Preencha todos os campos obrigatórios.")
 
-            st.markdown("<div style='margin-top: 2rem;'>", unsafe_allow_html=True)
+            st.write("")
             if st.button("Voltar ao Login", key="btn_voltar_login1"):
                 st.session_state["auth_mode"] = "login"
                 st.rerun()
-            st.markdown("</div>", unsafe_allow_html=True)
 
-        # MODO 3: REDEFINIÇÃO DIRETA DE SENHA
+        # MODO 3: REDEFINIR SENHA
         elif st.session_state["auth_mode"] == "recuperar":
             st.markdown("<h3 style='text-align: center; margin-bottom: 0.5rem; font-size: 1.5rem;'>Redefinir Senha</h3>", unsafe_allow_html=True)
             st.markdown("<p style='text-align: center; font-size: 0.88rem; color: #6B655C; margin-bottom: 1.5rem;'>Informe seu e-mail cadastrado e defina a nova senha.</p>", unsafe_allow_html=True)
-            
+
             email_recup = st.text_input("E-mail cadastrado", key="recup_email")
             nova_senha_recup = st.text_input("Nova Senha", type="password", key="recup_nova_senha")
             confirmar_senha = st.text_input("Confirmar Nova Senha", type="password", key="recup_conf_senha")
@@ -295,27 +321,31 @@ if not st.session_state["usuario_logado"]:
                     else:
                         st.error("Nenhuma conta encontrada com este e-mail.")
 
-            st.markdown("<div style='margin-top: 2rem;'>", unsafe_allow_html=True)
+            st.write("")
             if st.button("Voltar ao Login", key="btn_voltar_login2"):
                 st.session_state["auth_mode"] = "login"
                 st.rerun()
-            st.markdown("</div>", unsafe_allow_html=True)
 
     st.stop()
 
 # ============================================================
 # CABEÇALHO & IDENTIDADE LOGADA
 # ============================================================
-col_head1, col_head2 = st.columns([4, 1.2])
+col_head1, col_head2 = st.columns([4, 1.4])
 with col_head1:
     st.markdown("""
     <div style="padding: 0.5rem 0 0.2rem 0;">
         <h1 style="font-size: 2.3rem; margin-bottom: 0px;">Interview Lab AI</h1>
-        <p style="color: #787267; font-size: 0.95rem; margin-top: -4px;">Laboratório de Simulação e Lapidação Narrativa para Entrevistas Executivas.</p>
+        <p style="color: #787267; font-size: 0.95rem; margin-top: -4px;">Laboratório de Simulação e Lapidação Narrativa para Entrevistas</p>
     </div>
     """, unsafe_allow_html=True)
 with col_head2:
-    st.markdown(f"<div style='text-align: right; padding-top: 0.8rem;'><span style='font-size: 0.85rem; color: #787267;'>Candidato Conectado</span><br><b>{st.session_state.get('usuario_nome', 'Candidato')}</b></div>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div style='text-align: right; padding-top: 0.8rem; margin-bottom: 0.4rem;'>"
+        f"<span style='font-size: 0.85rem; color: #787267;'>Candidato Conectado</span><br>"
+        f"<b>{st.session_state.get('usuario_nome', 'Candidato')}</b></div>",
+        unsafe_allow_html=True
+    )
     if st.button("Sair da Sessão", key="btn_logout"):
         st.session_state.clear()
         st.rerun()
@@ -331,37 +361,42 @@ if not api_key:
 client = get_client(api_key)
 
 # ============================================================
-# GERENCIAMENTO DAS ETAPAS E PROGRESSO
+# GERENCIAMENTO DAS ETAPAS (navegação automática)
 # ============================================================
-etapas_lista = ["1. Contexto da Vaga"]
-if st.session_state.get("etapa1_concluida"):
-    etapas_lista.append("2. Painel de Simulação")
-if st.session_state.get("etapa2_concluida"):
-    etapas_lista.append("3. Lapidação & Feedback")
+ETAPA_1 = "1. Contexto da Vaga"
+ETAPA_2 = "2. Painel de Simulação"
+ETAPA_3 = "3. Lapidação & Feedback"
 
-if "etapa_selecionada" not in st.session_state or st.session_state["etapa_selecionada"] not in etapas_lista:
-    st.session_state["etapa_selecionada"] = etapas_lista[0]
+etapas_lista = [ETAPA_1]
+if st.session_state.get("etapa1_concluida"):
+    etapas_lista.append(ETAPA_2)
+if st.session_state.get("etapa2_concluida"):
+    etapas_lista.append(ETAPA_3)
+
+# Aplica navegação pedida pelos botões ANTES de criar o radio
+destino = st.session_state.pop("_ir_para_etapa", None)
+if destino in etapas_lista:
+    st.session_state["etapa_radio_main"] = destino
+
+if st.session_state.get("etapa_radio_main") not in etapas_lista:
+    st.session_state["etapa_radio_main"] = etapas_lista[0]
 
 etapa_atual = st.radio(
     "Navegação por Etapas:",
     options=etapas_lista,
-    index=etapas_lista.index(st.session_state["etapa_selecionada"]),
     horizontal=True,
     key="etapa_radio_main"
 )
 
-st.session_state["etapa_selecionada"] = etapa_atual
-
 # ============================================================
 # ETAPA 1 — CONTEXTO DA VAGA
 # ============================================================
-if st.session_state["etapa_selecionada"] == "1. Contexto da Vaga":
-    st.markdown('<div class="editorial-card">', unsafe_allow_html=True)
+if etapa_atual == ETAPA_1:
     st.markdown("<h3>Etapa 1 — Contexto da Vaga & Perfil</h3>", unsafe_allow_html=True)
     st.markdown("<p style='color: #6B655C; font-size: 0.92rem; margin-bottom: 1.5rem;'>Insira os detalhes estratégicos do cargo pretendido. A IA utilizará esses dados para personalizar a avaliação.</p>", unsafe_allow_html=True)
-    
+
     ctx = st.session_state.get("contexto_vaga", {})
-    
+
     col1, col2 = st.columns(2, gap="medium")
     with col1:
         empresa = st.text_input("Empresa Alvo", value=ctx.get("empresa", ""), placeholder="Ex: Google, Itaú, Ambev...")
@@ -378,7 +413,7 @@ if st.session_state["etapa_selecionada"] == "1. Contexto da Vaga":
             st.warning("Preencha pelo menos a Empresa, Cargo e Descrição da Vaga.")
         else:
             curriculo_texto = extrair_texto_curriculo(curriculo_file) if curriculo_file else ctx.get("curriculo_texto", "")
-            
+
             st.session_state["contexto_vaga"] = {
                 "empresa": empresa,
                 "cargo": cargo,
@@ -389,42 +424,36 @@ if st.session_state["etapa_selecionada"] == "1. Contexto da Vaga":
             }
             st.session_state["etapa1_concluida"] = True
             salvar_progresso_banco(st.session_state["usuario_logado"])
-            
-            st.session_state["etapa_selecionada"] = "2. Painel de Simulação"
-            st.rerun()
-            
-    st.markdown('</div>', unsafe_allow_html=True)
+            ir_para_etapa(ETAPA_2)
 
 # ============================================================
 # ETAPA 2 — PAINEL DE SIMULAÇÃO
 # ============================================================
-elif st.session_state["etapa_selecionada"] == "2. Painel de Simulação":
-    col_nav1, col_nav2 = st.columns([1.5, 4])
+elif etapa_atual == ETAPA_2:
+    col_nav1, _ = st.columns([1.5, 4])
     with col_nav1:
         if st.button("⬅ Voltar para Contexto da Vaga", key="btn_voltar_e1"):
-            st.session_state["etapa_selecionada"] = "1. Contexto da Vaga"
-            st.rerun()
+            ir_para_etapa(ETAPA_1)
 
-    st.markdown('<div class="editorial-card">', unsafe_allow_html=True)
     st.markdown("<h3>Etapa 2 — Simulação & Avaliação Técnica</h3>", unsafe_allow_html=True)
     st.markdown("<p style='color: #6B655C; font-size: 0.92rem; margin-bottom: 1.5rem;'>Selecione uma pergunta técnica ou comportamental e responda via texto ou áudio.</p>", unsafe_allow_html=True)
-    
+
     lista_perguntas = list(PERGUNTAS_CURATORIA.keys())
     pergunta_selecionada = st.selectbox("Escolha a Pergunta para Simular:", options=lista_perguntas)
     dados_pergunta = PERGUNTAS_CURATORIA[pergunta_selecionada]
-    
+
     st.markdown(f"""
     <div style="background-color: #FAFAFA; border: 1px solid #E6E1D7; padding: 14px 18px; border-radius: 6px; margin: 10px 0 20px 0;">
         <span style="font-size: 0.85rem; color: #111E16; font-weight: 700;">METODOLOGIA SUGERIDA:</span> <span style="font-size: 0.88rem; color: #4A453E;">{dados_pergunta['tecnica']}</span><br>
         <span style="font-size: 0.85rem; color: #111E16; font-weight: 700;">FOCO DO AVALIADOR:</span> <span style="font-size: 0.88rem; color: #4A453E;">{dados_pergunta['expectativa']}</span>
     </div>
     """, unsafe_allow_html=True)
-    
+
     tipo_resposta = st.radio("Formato da Resposta:", ["Texto", "Áudio"], horizontal=True, key="tipo_resp_radio")
-    
+
     resposta_texto = None
     audio_bytes = None
-    
+
     if tipo_resposta == "Texto":
         resposta_texto = st.text_area("Sua Resposta:", placeholder="Desenvolva sua resposta utilizando a técnica sugerida...", height=180)
     else:
@@ -446,69 +475,61 @@ elif st.session_state["etapa_selecionada"] == "2. Painel de Simulação":
                     resposta_texto=resposta_texto,
                     audio_bytes=audio_bytes
                 )
-                
-                st.session_state["ultima_pergunta"] = pergunta_selecionada
-                st.session_state["ultima_avaliacao"] = resultado
-                
-                if "avaliacoes" not in st.session_state:
-                    st.session_state["avaliacoes"] = []
-                st.session_state["avaliacoes"].append({
-                    "pergunta": pergunta_selecionada,
-                    "avaliacao": resultado
-                })
-                
-                st.session_state["etapa2_concluida"] = True
-                salvar_progresso_banco(st.session_state["usuario_logado"])
-                
-                st.session_state["etapa_selecionada"] = "3. Lapidação & Feedback"
-                st.rerun()
 
-    st.markdown('</div>', unsafe_allow_html=True)
+            st.session_state["ultima_pergunta"] = pergunta_selecionada
+            st.session_state["ultima_avaliacao"] = resultado
+
+            if "avaliacoes" not in st.session_state:
+                st.session_state["avaliacoes"] = []
+            st.session_state["avaliacoes"].append({
+                "pergunta": pergunta_selecionada,
+                "avaliacao": resultado
+            })
+
+            st.session_state["etapa2_concluida"] = True
+            salvar_progresso_banco(st.session_state["usuario_logado"])
+            ir_para_etapa(ETAPA_3)
 
     if st.session_state.get("ultima_avaliacao"):
-        st.markdown('<div class="editorial-card">', unsafe_allow_html=True)
-        st.markdown("### Último Parecer Técnico Gerado")
-        st.markdown(st.session_state["ultima_avaliacao"])
-        st.markdown('</div>', unsafe_allow_html=True)
+        with st.container(border=True):
+            st.markdown("### Último Parecer Técnico Gerado")
+            st.markdown(st.session_state["ultima_avaliacao"])
 
 # ============================================================
 # ETAPA 3 — LAPIDAÇÃO & FEEDBACK
 # ============================================================
-elif st.session_state["etapa_selecionada"] == "3. Lapidação & Feedback":
-    col_nav1, col_nav2 = st.columns([1.5, 4])
+elif etapa_atual == ETAPA_3:
+    col_nav1, _ = st.columns([1.5, 4])
     with col_nav1:
         if st.button("⬅ Voltar para Simulação", key="btn_voltar_e2"):
-            st.session_state["etapa_selecionada"] = "2. Painel de Simulação"
-            st.rerun()
+            ir_para_etapa(ETAPA_2)
 
-    st.markdown('<div class="editorial-card">', unsafe_allow_html=True)
     st.markdown("<h3>Etapa 3 — Atelier de Lapidação Narrativa</h3>", unsafe_allow_html=True)
     st.markdown("<p style='color: #6B655C; font-size: 0.92rem; margin-bottom: 1.5rem;'>Converse com o mentor de inteligência para ajustar métricas, storytelling e pesquisar tendências da empresa no mercado em tempo real.</p>", unsafe_allow_html=True)
-    
+
     if "mensagens_chat" not in st.session_state:
         st.session_state["mensagens_chat"] = []
-        
+
     for msg in st.session_state["mensagens_chat"]:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
-            
+
     prompt_usuario = st.chat_input("Ex: Como posso destacar minha experiência com liderança nessa resposta?")
     if prompt_usuario:
         st.session_state["mensagens_chat"].append({"role": "user", "content": prompt_usuario})
         with st.chat_message("user"):
             st.markdown(prompt_usuario)
-            
-        with st.spinner("Buscando dados adicionais no mercado e estruturando feedback..."):
-            resposta_ia = simular_chat_lapidacao_com_busca(
-                client=client,
-                historico_mensagens=st.session_state["mensagens_chat"],
-                contexto_vaga=st.session_state.get("contexto_vaga", {}),
-                pergunta=st.session_state.get("ultima_pergunta", "Pergunta Comportamental"),
-                parecer_anterior=st.session_state.get("ultima_avaliacao", "")
-            )
-            st.session_state["mensagens_chat"].append({"role": "assistant", "content": resposta_ia})
-            salvar_progresso_banco(st.session_state["usuario_logado"])
-            with st.chat_message("assistant"):
-                st.markdown(resposta_ia)
-                
-    st.markdown('</div>', unsafe_allow_html=True)
+
+        with st.chat_message("assistant"):
+            with st.spinner("Buscando dados adicionais no mercado e estruturando feedback..."):
+                resposta_ia = simular_chat_lapidacao_com_busca(
+                    client=client,
+                    historico_mensagens=st.session_state["mensagens_chat"],
+                    contexto_vaga=st.session_state.get("contexto_vaga", {}),
+                    pergunta=st.session_state.get("ultima_pergunta", "Pergunta Comportamental"),
+                    parecer_anterior=st.session_state.get("ultima_avaliacao", "")
+                )
+            st.markdown(resposta_ia)
+
+        st.session_state["mensagens_chat"].append({"role": "assistant", "content": resposta_ia})
+        salvar_progresso_banco(st.session_state["usuario_logado"])
