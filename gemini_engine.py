@@ -1,102 +1,101 @@
-"""Integração com Gemini para avaliação, transcrição e mentoria."""
+# gemini_engine.py
+import json
 import os
-import streamlit as st
 from google import genai
 from google.genai import types
 from curadoria import INSIGHTS_GERAIS
 
-MODEL = "gemini-2.5-flash"
+def get_client(api_key: str = None):
+    key = api_key or os.getenv("GEMINI_API_KEY")
+    if not key:
+        raise ValueError("Chave GEMINI_API_KEY não encontrada.")
+    return genai.Client(api_key=key)
 
-
-def get_client():
-    try:
-        api_key = st.secrets.get("GEMINI_API_KEY", "")
-    except Exception:
-        api_key = ""
-    api_key = api_key or os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        raise RuntimeError("Configure GEMINI_API_KEY em Settings > Secrets do Streamlit.")
-    return genai.Client(api_key=api_key)
-
-
-def _generate(client, prompt, web_search=False):
-    config = types.GenerateContentConfig(
-        temperature=0.55,
-        tools=[types.Tool(google_search=types.GoogleSearch())] if web_search else None,
-    )
-    result = client.models.generate_content(model=MODEL, contents=prompt, config=config)
-    return result.text or "Não foi possível gerar uma resposta. Tente novamente."
-
-
-def avaliar_resposta(client, contexto, pergunta, resposta, metadados):
+def avaliar_resposta_completa(client, contexto: dict, pergunta: str, dados_pergunta: dict, resposta_texto: str = None, audio_bytes: bytes = None, audio_mime: str = "audio/wav"):
+    """
+    Avalia a resposta do candidato (seja via áudio ou texto) considerando
+    a técnica recomendada e expectativas específicas de curadoria.
+    """
     prompt = f"""
-Você é avaliador sênior de recrutamento e desenvolvimento de talentos.
-Avalie com rigor, respeito e especificidade. Não force STAR em todas as perguntas.
+    {INSIGHTS_GERAIS}
 
-CONTEXTO DA VAGA E DO CANDIDATO:
-{contexto}
+    CONTEXTO DA VAGA E EMPRESA:
+    Empresa: {contexto.get('empresa')}
+    Cargo: {contexto.get('cargo')}
+    Descrição da Vaga: {contexto.get('descricao')}
+    Sobre a Empresa: {contexto.get('sobre_empresa')}
+    Perfil LinkedIn do Candidato: {contexto.get('linkedin', 'Não informado')}
+    Texto do Currículo: {contexto.get('curriculo_texto', 'Não informado')}
 
-PERGUNTA: {pergunta}
-TÉCNICA DA CURADORIA: {metadados.get('tecnica', 'Adequar à pergunta')}
-EXPECTATIVA DA CURADORIA: {metadados.get('expectativa', '')}
-DIRETRIZES:
-{INSIGHTS_GERAIS}
+    PERGUNTA DA ENTREVISTA SELECIONADA:
+    "{pergunta}"
 
-RESPOSTA DO CANDIDATO:
-{resposta}
+    TÉCNICA ESPERADA PARA ESTA PERGUNTA: {dados_pergunta.get('tecnica')}
+    EXPECTATIVA DO RECRUTADOR: {dados_pergunta.get('expectativa')}
 
-Faça uma avaliação adequada ao tipo de pergunta. Para perguntas comportamentais, observe contexto,
-responsabilidade, ações e resultados. Para trajetória/motivação, observe narrativa e conexão entre
-passado, presente e futuro. Para perguntas técnicas, observe precisão, profundidade e aplicação.
-Para pontos fortes/fracos, observe autenticidade, evidências e autoconhecimento. Não invente fatos,
-competências, números ou experiências. Use apenas fatos fornecidos pelo candidato.
+    INSTRUÇÕES DE AVALIAÇÃO:
+    1. Se houver áudio, transcreva-o primeiro na íntegra.
+    2. Avalie o alinhamento da resposta do candidato com os requisitos da vaga, o perfil do candidato (se fornecido) e a expectativa técnica da pergunta.
+    3. Retorne um feedback completo estruturado com:
+       - Transcrição (se aplicável)
+       - Pontuação de Alinhamento (0 a 100%)
+       - Análise Técnica da Estrutura da Resposta
+       - Pontos Fortes
+       - Lacunas e Oportunidades de Melhoria
+       - Reescrita Ideal Sugerida (de alto impacto)
+    """
 
-Organize em: 1) diagnóstico geral; 2) pontos fortes; 3) pontos a melhorar; 4) avaliação dos critérios
-pertinentes (notas de 1 a 5, explicadas); 5) informações que faltam; 6) versão aprimorada natural,
-marcando lacunas entre colchetes; 7) dica prática para a entrevista.
-Não dê nota artificialmente alta e não trate a técnica como uma lista mecânica.
-"""
-    return _generate(client, prompt)
+    contents = []
+    if audio_bytes:
+        contents.append(types.Part.from_bytes(data=audio_bytes, mime_type=audio_mime))
+    
+    if resposta_texto:
+        contents.append(f"\nRESPOSTA ESCRITA DO CANDIDATO:\n{resposta_texto}")
 
+    contents.append(prompt)
 
-def transcrever_audio(client, audio_file):
-    part = types.Part.from_bytes(data=audio_file.getvalue(), mime_type=audio_file.type or "audio/wav")
-    result = client.models.generate_content(
-        model=MODEL,
-        contents=["Transcreva fielmente em português. Não avalie nem reescreva. Retorne somente a transcrição. Sinalize trechos inaudíveis.", part],
+    response = client.models.generate_content(
+        model='gemini-2.5-flash',
+        contents=contents
     )
-    return result.text or ""
+    return response.text
 
+def simular_chat_lapidacao_com_busca(client, historico_mensagens: list, contexto_vaga: dict, pergunta: str, parecer_anterior: str):
+    """
+    Chat interativo que utiliza a busca na web (Google Search Grounding) para complementar
+    as informações da empresa, vaga e melhores práticas do mercado.
+    """
+    system_instruction = f"""
+    Você é um mentor sênior de carreiras e recrutador de elite.
+    Seu objetivo é ajudar o candidato a lapidar a resposta para a pergunta: "{pergunta}".
 
-def mentor_chat(client, contexto, pergunta_atual, avaliacoes, historico, mensagem, web_search=True):
-    prompt = f"""
-Você é o mentor de carreira do Interview Lab AI, especialista em recrutamento, entrevistas e desenvolvimento profissional.
+    DADOS DO CANDIDATO E DA VAGA:
+    - Empresa: {contexto_vaga.get('empresa')}
+    - Cargo: {contexto_vaga.get('cargo')}
+    - Descrição: {contexto_vaga.get('descricao')}
+    - Sobre a Empresa: {contexto_vaga.get('sobre_empresa')}
+    - LinkedIn: {contexto_vaga.get('linkedin')}
+    - Resumo do Currículo: {contexto_vaga.get('curriculo_texto')}
+    - Último parecer de avaliação: {parecer_anterior}
 
-Use prioritariamente o contexto e as experiências reais abaixo. Não invente informações do candidato.
+    DIRETRIZES:
+    1. As informações fornecidas acima são suas referências principais.
+    2. Você DEVE realizar buscas na web se precisar validar novidades sobre a empresa, tendências da área, requisitos de mercado ou cultura organizacional.
+    3. Dê feedbacks elegantes, práticos e construa a melhor narrativa profissional possível com o candidato.
+    """
 
-CONTEXTO DO CANDIDATO, VAGA E EMPRESA:
-{contexto}
+    contents = []
+    for msg in historico_mensagens:
+        role = "user" if msg["role"] == "user" else "model"
+        contents.append({"role": role, "parts": [{"text": msg["content"]}]})
 
-PERGUNTA EM TREINAMENTO:
-{pergunta_atual or 'Não há pergunta selecionada no momento.'}
-
-AVALIAÇÕES ANTERIORES:
-{avaliacoes or 'Nenhuma avaliação anterior.'}
-
-HISTÓRICO DA CONVERSA:
-{historico}
-
-MENSAGEM ATUAL:
-{mensagem}
-
-ORIENTAÇÕES:
-- Personalize usando currículo, LinkedIn (quando houver conteúdo verificável), vaga e avaliações.
-- Quando pertinente, pesquise na internet informações atuais sobre empresa, setor, vaga, competências
-  e expectativas comuns de recrutadores. Priorize páginas oficiais e fontes confiáveis.
-- Diferencie fatos encontrados, inferências e recomendações. Nunca afirme ter acessado um LinkedIn
-  privado ou uma página que não conseguiu consultar.
-- Ajude a construir respostas autênticas, sem inventar experiências ou resultados.
-- Se faltarem dados pessoais essenciais, faça perguntas objetivas.
-- Responda em português, com profundidade e tom profissional, evitando generalidades.
-"""
-    return _generate(client, prompt, web_search=web_search)
+    # Ativa busca integrada no Google (Google Search Grounding)
+    response = client.models.generate_content(
+        model='gemini-2.5-flash',
+        contents=contents,
+        config=types.GenerateContentConfig(
+            system_instruction=system_instruction,
+            tools=[{"google_search": {}}]
+        )
+    )
+    return response.text
