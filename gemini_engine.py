@@ -12,8 +12,8 @@ def get_client(api_key: str = None):
 
 def avaliar_resposta_completa(client, contexto: dict, pergunta: str, dados_pergunta: dict, resposta_texto: str = None, audio_bytes: bytes = None, audio_mime: str = "audio/wav"):
     """
-    Avalia a resposta do candidato (áudio ou texto) utilizando
-    a estrutura nativa de partes da biblioteca google-genai.
+    Avalia a resposta do candidato (áudio ou texto) enviando os parâmetros no formato 
+    exigido pelo SDK google-genai.
     """
     if not contexto:
         contexto = {}
@@ -54,28 +54,27 @@ def avaliar_resposta_completa(client, contexto: dict, pergunta: str, dados_pergu
 
     parts = []
 
-    # Se houver áudio, adiciona os bytes no formato exigido
+    # Se recebeu bytes de áudio válidos, insere o Part do áudio
     if audio_bytes and isinstance(audio_bytes, bytes) and len(audio_bytes) > 0:
         parts.append(types.Part.from_bytes(data=audio_bytes, mime_type=audio_mime))
 
-    # Adiciona a instrução de texto
+    # Insere o Part de texto
     parts.append(types.Part.from_text(text=prompt_texto))
 
-    # Tenta primeiro com gemini-2.0-flash e faz fallback para gemini-1.5-flash
-    erros = []
-    for model_name in ['gemini-2.0-flash', 'gemini-1.5-flash']:
+    # Executa com fallback seguro de modelos
+    for model_name in ['gemini-2.5-flash', 'gemini-1.5-flash']:
         try:
             response = client.models.generate_content(
                 model=model_name,
-                contents=parts
+                contents=types.Content(parts=parts)
             )
             if response and response.text:
                 return response.text
         except Exception as e:
-            erros.append(f"{model_name}: {str(e)}")
+            last_err = str(e)
             continue
-
-    return f"Erro ao comunicar com a API do Gemini. Detalhes: {' | '.join(erros)}"
+            
+    raise RuntimeError(f"Erro na API do Gemini: {last_err}")
 
 def simular_chat_lapidacao_com_busca(client, historico_mensagens: list, contexto_vaga: dict, pergunta: str, parecer_anterior: str):
     """
@@ -116,15 +115,12 @@ def simular_chat_lapidacao_com_busca(client, historico_mensagens: list, contexto
                 )
             )
 
-    try:
-        response = client.models.generate_content(
-            model='gemini-2.0-flash',
-            contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=system_instruction,
-                tools=[{"google_search": {}}]
-            )
+    response = client.models.generate_content(
+        model='gemini-2.5-flash',
+        contents=contents,
+        config=types.GenerateContentConfig(
+            system_instruction=system_instruction,
+            tools=[{"google_search": {}}]
         )
-        return response.text
-    except Exception as e:
-        return f"Erro no chat de lapidação: {str(e)}"
+    )
+    return response.text
