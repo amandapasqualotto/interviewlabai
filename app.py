@@ -53,13 +53,7 @@ st.markdown("""
         margin-bottom: 24px;
     }
 
-    .auth-container {
-        max-width: 420px;
-        margin: 0 auto;
-        padding: 10px 0;
-    }
-
-    /* Estilização Geral de Botões */
+    /* Estilização Botão Principal */
     .stButton>button {
         background-color: #111E16;
         color: #FBF9F5;
@@ -78,7 +72,7 @@ st.markdown("""
         color: #FFFFFF;
     }
 
-    /* Botão Secundário para Criar Conta (Cor Diferente) */
+    /* Estilização Botão Secundário (Criar Nova Conta) */
     div[key="btn_toggle_cad"] > button, div[key="btn_voltar_login1"] > button, div[key="btn_voltar_login2"] > button {
         background-color: transparent !important;
         color: #111E16 !important;
@@ -89,21 +83,16 @@ st.markdown("""
         color: #FFFFFF !important;
     }
 
-    /* Link Discreto para Esqueci Minha Senha */
-    div[key="btn_toggle_recup"] > button {
-        background: transparent !important;
-        border: none !important;
-        color: #787267 !important;
-        font-size: 0.85rem !important;
-        font-weight: 400 !important;
-        text-decoration: underline !important;
-        padding: 0.2rem 0 !important;
-        box-shadow: none !important;
-        width: 100% !important;
-        text-align: center !important;
+    /* Link Texto 'Esqueci minha senha' estilo sutil */
+    .link-esqueci {
+        color: #787267;
+        font-size: 0.88rem;
+        text-decoration: underline;
+        cursor: pointer;
+        transition: color 0.2s ease;
     }
-    div[key="btn_toggle_recup"] > button:hover {
-        color: #111E16 !important;
+    .link-esqueci:hover {
+        color: #111E16;
     }
 
     /* Campos de Entrada */
@@ -223,17 +212,30 @@ if not st.session_state["usuario_logado"]:
                 else:
                     st.error("E-mail ou senha incorretos.")
 
-            # Esqueci minha senha sutil e centralizado logo abaixo do botão
-            if st.button("Esqueci minha senha", key="btn_toggle_recup"):
+            # Texto limpo para "Esqueci minha senha" sem caixa/fundo
+            st.markdown("""
+            <div style="text-align: center; margin-top: 0.8rem;">
+                <a href="?recuperar=true" target="_self" class="link-esqueci">Esqueci minha senha</a>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Captura de clique no parâmetro de URL da recuperação
+            if st.query_params.get("recuperar") == "true":
+                st.query_params.clear()
                 st.session_state["auth_mode"] = "recuperar"
                 st.rerun()
 
-            st.markdown("<div style='margin-top: 2.5rem; text-align: center;'>", unsafe_allow_html=True)
-            st.markdown("<p style='font-size: 0.88rem; color: #787267; margin-bottom: 0.6rem;'>Ainda não possui um acesso?</p>", unsafe_allow_html=True)
-            if st.button("Criar nova conta de candidato", key="btn_toggle_cad"):
+            # Divisão sutil com linha decorada
+            st.markdown("""
+            <div style="margin: 2rem 0 1.5rem 0; text-align: center;">
+                <hr style="border: none; border-top: 1px solid #E6E1D7; margin-bottom: 1.5rem;">
+                <p style="font-size: 0.88rem; color: #787267; margin-bottom: 0.8rem;">Ainda não possui um acesso?</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+            if st.button("Criar nova conta", key="btn_toggle_cad"):
                 st.session_state["auth_mode"] = "cadastro"
                 st.rerun()
-            st.markdown("</div>", unsafe_allow_html=True)
 
         # MODO 2: CRIAR CONTA
         elif st.session_state["auth_mode"] == "cadastro":
