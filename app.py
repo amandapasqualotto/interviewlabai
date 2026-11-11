@@ -1,8 +1,34 @@
 import streamlit as st
 import os
 from google import genai
-from curadoria import CURADORIA_VAGAS
-from gemini_engine import avaliar_resposta_com_gemini, simular_chat_lapidacao
+
+# --- FUNÇÕES DE INTEGRAÇÃO COM GEMINI ---
+def avaliar_resposta_com_gemini(client, contexto, pergunta, resposta):
+    prompt = f"""
+    Você é um selecionador sênior de carreiras avaliando um candidato para a vaga:
+    Empresa: {contexto.get('empresa')}
+    Cargo: {contexto.get('cargo')}
+    Descrição: {contexto.get('descricao')}
+    Cultura: {contexto.get('cultura')}
+
+    Pergunta feita: {pergunta}
+    Resposta fornecida pelo candidato: {resposta}
+
+    Avalie a resposta utilizando a Metodologia STAR (Situação, Tarefa, Ação, Resultado).
+    Forneça um feedback construtivo, elegante, pontuando os acertos, lacunas e sugerindo uma versão aprimorada da resposta.
+    """
+    response = client.models.generate_content(
+        model='gemini-1.5-flash',
+        contents=prompt
+    )
+    return response.text
+
+def simular_chat_lapidacao(client, historico_mensagens):
+    response = client.models.generate_content(
+        model='gemini-1.5-flash',
+        contents=historico_mensagens
+    )
+    return response.text
 
 # Configuração da página com tema minimalista e título customizado
 st.set_page_config(
@@ -17,26 +43,18 @@ st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Plus+Jakarta+Sans:wght@300;400;500;600&display=swap');
 
-    /* Fundo geral e tipografia base */
     .stApp {
         background-color: #FBF9F5;
         color: #2C2A29;
         font-family: 'Plus Jakarta Sans', sans-serif;
     }
 
-    /* Títulos com a fonte editorial serifada */
     h1, h2, h3, h4, .editorial-title {
         font-family: 'Playfair Display', serif;
         color: #1E3023;
         font-weight: 700;
     }
 
-    /* Estilização dos blocos / containers com bordas finas e fundo creme claro */
-    div.stMarkdownContainer, .element-container {
-        font-family: 'Plus Jakarta Sans', sans-serif;
-    }
-
-    /* Caixa de destaque estilo editorial */
     .editorial-card {
         background-color: #F4F1EA;
         border: 1px solid #E3DED4;
@@ -45,7 +63,6 @@ st.markdown("""
         margin-bottom: 20px;
     }
 
-    /* Botões personalizados */
     .stButton>button {
         background-color: #1E3023;
         color: #FBF9F5;
@@ -61,15 +78,13 @@ st.markdown("""
         color: #FFFFFF;
     }
 
-    /* Inputs e Selects minimalistas */
-    .stTextInput>div>div>input, .stSelectbox>div>div>div {
+    .stTextInput>div>div>input, .stSelectbox>div>div>div, .stTextArea>div>div>textarea {
         background-color: #FFFFFF;
         border: 1px solid #DCD6CD;
         border-radius: 2px;
         color: #2C2A29;
     }
 
-    /* Ocultar elementos padrão do Streamlit para manter clean */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
 </style>
@@ -87,7 +102,7 @@ st.markdown("""
 <hr style="border: none; border-top: 1px solid #E3DED4; margin: 2rem 0;">
 """, unsafe_allow_html=True)
 
-# Inicialização segura da API Key do Gemini (lendo dos Secrets ou do ambiente)
+# Inicialização segura da API Key do Gemini
 api_key = None
 try:
     if "GEMINI_API_KEY" in st.secrets:
@@ -102,51 +117,39 @@ if not api_key:
     st.markdown("""
     <div class="editorial-card" style="border-left: 4px solid #A35C44;">
         <h3 style="margin-top:0; color: #A35C44;">Configuração Necessária</h3>
-        <p>A chave da API do Gemini não foi detectada. Por favor, configure a chave secreta no painel do Streamlit Cloud (Secrets) ou na variável de ambiente.</p>
+        <p>A chave da API do Gemini não foi detectada nos Secrets do Streamlit Cloud.</p>
     </div>
     """, unsafe_allow_html=True)
     st.stop()
 
 client = genai.Client(api_key=api_key)
 
-# --- LAYOUT EM ABAS / SEÇÕES ESTILO EDITORIAL ---
+# --- LAYOUT EM ABAS EDITORIAL ---
 aba_escolha, aba_pratica, aba_chat = st.tabs([
-    "🌿 1. Contexto & Vaga", 
+    "🌿 1. Contexto da Vaga", 
     "🎙️ 2. Painel de Simulação", 
     "✍️ 3. Lapidação & Feedback"
 ])
 
 with aba_escolha:
-    st.markdown("### Selecione ou Personalize o Contexto")
-    st.markdown("<p style='color: #6C665F;'>Escolha uma das vagas curadas abaixo ou insira os detalhes da empresa dos seus sonhos.</p>", unsafe_allow_html=True)
+    st.markdown("### Defina o Contexto da Vaga")
+    st.markdown("<p style='color: #6C665F;'>Insira os detalhes da empresa, cargo e requisitos para personalizar a simulação de entrevista.</p>", unsafe_allow_html=True)
     
     col1, col2 = st.columns([1, 1], gap="large")
     
     with col1:
-        opcao_vaga = st.selectbox(
-            "Trilhas de Vagas Disponíveis",
-            ["Personalizado / Inserir Manualmente"] + list(CURADORIA_VAGAS.keys())
-        )
-    
-    if opcao_vaga != "Personalizado / Inserir Manualmente":
-        vaga_selecionada = CURADORIA_VAGAS[opcao_vaga]
-        empresa = vaga_selecionada["empresa"]
-        cargo = vaga_selecionada["cargo"]
-        descricao = vaga_selecionada["descricao"]
-        cultura = vaga_selecionada["cultura"]
-    else:
-        with col2:
-            empresa = st.text_input("Empresa", placeholder="Ex: Banco ABC / Escritório de Advocatia")
-            cargo = st.text_input("Cargo / Posição", placeholder="Ex: Pessoa Trainee Jurídico / Analista")
+        empresa = st.text_input("Nome da Empresa Alvo", placeholder="Ex: Google, Banco ABC, Escritório...")
+    with col2:
+        cargo = st.text_input("Cargo / Posição Desejada", placeholder="Ex: Product Manager, Advogado(a), Desenvolvedor(a)...")
         
-        descricao = st.text_area("Descrição e Requisitos da Vaga", placeholder="Cole aqui os principais requisitos...")
-        cultura = st.text_area("Cultura e Valores da Empresa", placeholder="Ex: Foco em autonomia, inovação e rigor técnico...")
+    descricao = st.text_area("Descrição e Requisitos da Vaga", placeholder="Cole aqui os principais requisitos técnicos ou responsabilidades exigidas pela vaga...")
+    cultura = st.text_area("Cultura e Valores da Empresa (Opcional)", placeholder="Ex: Foco em inovação, autonomia, trabalho em equipe, rigor técnico...")
 
     st.session_state["contexto_vaga"] = {
-        "empresa": empresa if 'empresa' in locals() else "Empresa Alvo",
-        "cargo": cargo if 'cargo' in locals() else "Cargo Desejado",
-        "descricao": descricao if 'descricao' in locals() else "",
-        "cultura": cultura if 'cultura' in locals() else ""
+        "empresa": empresa if empresa else "Empresa Alvo",
+        "cargo": cargo if cargo else "Cargo Desejado",
+        "descricao": descricao,
+        "cultura": cultura
     }
     
     st.markdown("<br>", unsafe_allow_html=True)
@@ -163,12 +166,12 @@ with aba_pratica:
     )
     
     resposta_candidato = st.text_area(
-        "Sua Resposta (ou digite/cole sua fala transcrita):",
+        "Sua Resposta:",
         placeholder="Estruture sua resposta aqui...",
         height=180
     )
     
-    if st.button("Avaliar com o Metodologia STAR"):
+    if st.button("Avaliar com a Metodologia STAR"):
         if not resposta_candidato.strip():
             st.warning("Por favor, insira uma resposta para receber a avaliação.")
         else:
@@ -202,9 +205,13 @@ with aba_chat:
         with st.chat_message("user"):
             st.markdown(prompt_usuario)
             
-        with  st.spinner("Tecendo ponderações..."):
-            resposta_ia = simular_chat_lapidacao(client, st.session_state["mensagens_chat"])
+        with st.spinner("Tecendo ponderações..."):
+            contents = []
+            for m in st.session_state["mensagens_chat"]:
+                role = "user" if m["role"] == "user" else "model"
+                contents.append({"role": role, "parts": [{"text": m["content"]}]})
+                
+            resposta_ia = simular_chat_lapidacao(client, contents)
             st.session_state["mensagens_chat"].append({"role": "assistant", "content": resposta_ia})
             with st.chat_message("assistant"):
                 st.markdown(resposta_ia)
-                
