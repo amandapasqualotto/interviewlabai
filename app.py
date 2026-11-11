@@ -72,15 +72,19 @@ st.markdown("""
         color: #FFFFFF;
     }
 
-    /* Estilização Botão Secundário (Criar Nova Conta) */
+    /* Estilização Botão Secundário (Criar Nova Conta - Fundo Cinza e Texto Escuro) */
     div[key="btn_toggle_cad"] > button, div[key="btn_voltar_login1"] > button, div[key="btn_voltar_login2"] > button {
-        background-color: transparent !important;
+        background-color: #E6E1D7 !important;
         color: #111E16 !important;
-        border: 1px solid #111E16 !important;
+        border: 1px solid #DCD6CD !important;
+        max-width: 260px !important;
+        margin: 0 auto !important;
+        display: block !important;
     }
     div[key="btn_toggle_cad"] > button:hover, div[key="btn_voltar_login1"] > button:hover, div[key="btn_voltar_login2"] > button:hover {
-        background-color: #111E16 !important;
-        color: #FFFFFF !important;
+        background-color: #DCD6CD !important;
+        color: #111E16 !important;
+        border-color: #C8C2B7 !important;
     }
 
     /* Link Texto 'Esqueci minha senha' estilo sutil */
@@ -212,20 +216,20 @@ if not st.session_state["usuario_logado"]:
                 else:
                     st.error("E-mail ou senha incorretos.")
 
-            # Texto limpo para "Esqueci minha senha" sem caixa/fundo
+            # Texto limpo para "Esqueci minha senha"
             st.markdown("""
             <div style="text-align: center; margin-top: 0.8rem;">
                 <a href="?recuperar=true" target="_self" class="link-esqueci">Esqueci minha senha</a>
             </div>
             """, unsafe_allow_html=True)
 
-            # Captura de clique no parâmetro de URL da recuperação
+            # Captura de clique na recuperação
             if st.query_params.get("recuperar") == "true":
                 st.query_params.clear()
                 st.session_state["auth_mode"] = "recuperar"
                 st.rerun()
 
-            # Divisão sutil com linha decorada
+            # Divisão sutil e centralizada
             st.markdown("""
             <div style="margin: 2rem 0 1.5rem 0; text-align: center;">
                 <hr style="border: none; border-top: 1px solid #E6E1D7; margin-bottom: 1.5rem;">
@@ -233,6 +237,7 @@ if not st.session_state["usuario_logado"]:
             </div>
             """, unsafe_allow_html=True)
 
+            # Botão Criar nova conta centralizado com fundo cinza
             if st.button("Criar nova conta", key="btn_toggle_cad"):
                 st.session_state["auth_mode"] = "cadastro"
                 st.rerun()
