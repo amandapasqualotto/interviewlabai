@@ -123,50 +123,54 @@ hr {
 
 
 # ============================================================
-# CABEÇALHO
-# ============================================================
 
-st.markdown("""
-<div style="text-align:center; padding:1.3rem 0 1rem 0;">
-
-    <p style="
-        letter-spacing:3px;
-        font-size:.78rem;
-        text-transform:uppercase;
-        color:#5A655D;
-        margin-bottom:.5rem;
+# --- CABEÇALHO EDITORIAL ---
+st.markdown(
+    """
+    <div style="
+        text-align: center;
+        padding: 2rem 0 1rem 0;
     ">
-        Atelier de Carreiras & Simulações
-    </p>
+        <p style="
+            letter-spacing: 3px;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            color: #5A655D;
+            margin-bottom: 0.5rem;
+        ">
+            — Atelier de Carreiras & Simulações —
+        </p>
 
-    <h1 style="
-        font-size:3rem;
-        margin-bottom:.45rem;
-        font-style:italic;
+        <h1 style="
+            font-family: 'Playfair Display', serif;
+            font-size: 3rem;
+            margin-bottom: 0.45rem;
+            font-style: italic;
+            color: #1E3023;
+        ">
+            Interview Lab AI
+        </h1>
+
+        <p style="
+            color: #6C665F;
+            font-size: 1rem;
+            max-width: 580px;
+            margin: 0 auto;
+        ">
+            Estruture respostas, pratique entrevistas e desenvolva
+            uma narrativa profissional consistente com apoio
+            de inteligência artificial.
+        </p>
+    </div>
+
+    <hr style="
+        border: none;
+        border-top: 1px solid #E3DED4;
+        margin: 2rem 0;
     ">
-        Interview Lab AI
-    </h1>
-
-    <p style="
-        color:#6C665F;
-        font-size:1rem;
-        max-width:680px;
-        margin:0 auto;
-    ">
-        Estruture respostas, pratique entrevistas e desenvolva
-        uma narrativa profissional consistente com apoio
-        de inteligência artificial.
-    </p>
-
-</div>
-
-<hr style="
-    border:none;
-    border-top:1px solid #E3DED4;
-    margin:1.5rem 0;
-">
-""", unsafe_allow_html=True)
-
+    """,
+    unsafe_allow_html=True
+)
 
 # ============================================================
 # ESTADO DA APLICAÇÃO
