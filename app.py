@@ -101,7 +101,7 @@ def extrair_texto_curriculo(uploaded_file):
     return texto
 
 # ============================================================
-# CONEXÃO COM SUPABASE & BANC0 DE DADOS
+# CONEXÃO COM SUPABASE & BANCO DE DADOS
 # ============================================================
 @st.cache_resource
 def init_supabase() -> Client:
@@ -134,7 +134,7 @@ def salvar_progresso_banco(email):
     supabase.table("usuarios").update(dados_atualizados).eq("email", email).execute()
 
 # ============================================================
-# TELA DE LOGIN / CADASTRO (AUTENTICAÇÃO)
+# TELA DE LOGIN / CADASTRO / ESQUECI A SENHA
 # ============================================================
 if "usuario_logado" not in st.session_state:
     st.session_state["usuario_logado"] = None
@@ -149,7 +149,7 @@ if not st.session_state["usuario_logado"]:
     
     col_centered = st.columns([1, 2, 1])[1]
     with col_centered:
-        aba_auth1, aba_auth2 = st.tabs(["Entrar na minha conta", "Criar nova conta"])
+        aba_auth1, aba_auth2, aba_auth3 = st.tabs(["Entrar na minha conta", "Criar nova conta", "Esqueci minha senha"])
         
         with aba_auth1:
             email = st.text_input("E-mail", key="login_email")
@@ -166,6 +166,7 @@ if not st.session_state["usuario_logado"]:
                     
                     st.session_state["etapa1_concluida"] = bool(st.session_state["contexto_vaga"].get("empresa"))
                     st.session_state["etapa2_concluida"] = len(st.session_state["avaliacoes"]) > 0
+                    st.session_state["etapa_selecionada"] = "1. Contexto da Vaga"
                     
                     st.success(f"Bem-vindo(a) de volta, {user['nome']}!")
                     st.rerun()
@@ -185,10 +186,27 @@ if not st.session_state["usuario_logado"]:
                     st.session_state["usuario_nome"] = novo_nome
                     st.session_state["etapa1_concluida"] = False
                     st.session_state["etapa2_concluida"] = False
+                    st.session_state["etapa_selecionada"] = "1. Contexto da Vaga"
                     st.success("Conta criada com sucesso!")
                     st.rerun()
                 else:
                     st.warning("Preencha todos os campos.")
+
+        with aba_auth3:
+            email_recuperacao = st.text_input("Insira o e-mail cadastrado para redefinir sua senha", key="recup_email")
+            if st.button("Enviar e-mail de redefinição"):
+                if not email_recuperacao:
+                    st.warning("Por favor, digite seu e-mail.")
+                else:
+                    user = buscar_usuario(email_recuperacao)
+                    if user:
+                        try:
+                            supabase.auth.reset_password_for_email(email_recuperacao)
+                            st.success("Enviamos as instruções para o seu e-mail para redefinição da senha!")
+                        except Exception as e:
+                            st.info(f"Instruções enviadas para {email_recuperacao} se cadastrado na plataforma.")
+                    else:
+                        st.info(f"Se o e-mail {email_recuperacao} estiver cadastrado, você receberá um link de recuperação.")
 
     st.stop()
 
@@ -220,7 +238,7 @@ if not api_key:
 client = get_client(api_key)
 
 # ============================================================
-# NAVEGAÇÃO PROGRESSIVA (SEM EMOJIS, DESBLOQUEIO CONDICIONAL)
+# NAVEGAÇÃO PROGRESSIVA (DESBLOQUEIO CONDICIONAL E NAVEGAÇÃO DIRETA)
 # ============================================================
 etapas_disponiveis = ["1. Contexto da Vaga"]
 if st.session_state.get("etapa1_concluida"):
@@ -228,12 +246,19 @@ if st.session_state.get("etapa1_concluida"):
 if st.session_state.get("etapa2_concluida"):
     etapas_disponiveis.append("3. Lapidação & Feedback")
 
+# Define a etapa inicial padrão se não definida
+if "etapa_selecionada" not in st.session_state or st.session_state["etapa_selecionada"] not in etapas_disponiveis:
+    st.session_state["etapa_selecionada"] = etapas_disponiveis[0]
+
 etapa_selecionada = st.radio(
     "Etapas de Preparação:",
     options=etapas_disponiveis,
+    index=etapas_disponiveis.index(st.session_state["etapa_selecionada"]),
     horizontal=True,
+    key="etapa_radio",
     label_visibility="collapsed"
 )
+st.session_state["etapa_selecionada"] = etapa_selecionada
 
 st.markdown("<hr style='margin-top: 0.5rem; margin-bottom: 1.5rem;'>", unsafe_allow_html=True)
 
@@ -257,7 +282,7 @@ if etapa_selecionada == "1. Contexto da Vaga":
     descricao = st.text_area("Descrição e Requisitos da Vaga", value=ctx.get("descricao", ""), placeholder="Cole os requisitos exigidos pela vaga...")
     sobre_empresa = st.text_area("Sobre a empresa (descrição, cultura, valores, etc)", value=ctx.get("sobre_empresa", ""), placeholder="Ex: Foco em inovação, autonomia, foco em clientes...")
 
-    if st.button("Salvar Contexto e Avançar ➔"):
+    if st.button("Salvar Contexto e Avançar para Etapa 2 ➔"):
         if not empresa or not cargo or not descricao:
             st.warning("Preencha pelo menos Nome da Empresa, Cargo e Descrição da vaga.")
         else:
@@ -273,13 +298,20 @@ if etapa_selecionada == "1. Contexto da Vaga":
             }
             st.session_state["etapa1_concluida"] = True
             salvar_progresso_banco(st.session_state["usuario_logado"])
-            st.success("Contexto salvo no banco de dados! Etapa 2 liberada.")
+            # Redirecionamento Automático para a Etapa 2
+            st.session_state["etapa_selecionada"] = "2. Painel de Simulação"
+            st.success("Contexto salvo! Direcionando para o Painel de Simulação...")
             st.rerun()
 
 # ============================================================
 # ETAPA 2 — PAINEL DE SIMULAÇÃO
 # ============================================================
 elif etapa_selecionada == "2. Painel de Simulação":
+    # Botão de Voltar para a Etapa 1
+    if st.button("⬅ Voltar para 1. Contexto da Vaga"):
+        st.session_state["etapa_selecionada"] = "1. Contexto da Vaga"
+        st.rerun()
+
     st.markdown("### Simulação de Pergunta & Resposta")
     st.markdown("<p style='color: #6C665F;'>Escolha uma pergunta da curadoria e responda por texto ou gravando um áudio.</p>", unsafe_allow_html=True)
     
@@ -308,7 +340,7 @@ elif etapa_selecionada == "2. Painel de Simulação":
         if audio_input:
             audio_bytes = audio_input.read()
 
-    if st.button("Enviar e Avaliar Resposta ➔"):
+    if st.button("Enviar, Avaliar e Avançar para Etapa 3 ➔"):
         if not resposta_texto and not audio_bytes:
             st.warning("Por favor, digite a resposta ou grave um áudio para prosseguir.")
         else:
@@ -335,14 +367,24 @@ elif etapa_selecionada == "2. Painel de Simulação":
                 st.session_state["etapa2_concluida"] = True
                 salvar_progresso_banco(st.session_state["usuario_logado"])
                 
-            st.markdown("---")
-            st.markdown("### Parecer Técnico do Avaliador")
-            st.markdown(resultado)
+                # Redirecionamento Automático para a Etapa 3
+                st.session_state["etapa_selecionada"] = "3. Lapidação & Feedback"
+                st.rerun()
+
+    if st.session_state.get("ultima_avaliacao"):
+        st.markdown("---")
+        st.markdown("### Último Parecer Técnico do Avaliador")
+        st.markdown(st.session_state["ultima_avaliacao"])
 
 # ============================================================
 # ETAPA 3 — LAPIDAÇÃO & FEEDBACK
 # ============================================================
 elif etapa_selecionada == "3. Lapidação & Feedback":
+    # Botão de Voltar para a Etapa 2
+    if st.button("⬅ Voltar para 2. Painel de Simulação"):
+        st.session_state["etapa_selecionada"] = "2. Painel de Simulação"
+        st.rerun()
+
     st.markdown("### Atelier de Lapidação (Chat com IA)")
     st.markdown("<p style='color: #6C665F;'>Refine pontos específicos, solicite reescritas e tire dúvidas com pesquisa em tempo real na web.</p>", unsafe_allow_html=True)
     
