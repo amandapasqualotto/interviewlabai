@@ -1,4 +1,3 @@
-# interview-lab-ai
 # Interview Lab AI
 
 Plataforma de preparação para entrevistas com Streamlit, Google Gemini e Supabase.
