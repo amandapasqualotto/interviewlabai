@@ -16,53 +16,57 @@ def avaliar_resposta_completa(client, contexto: dict, pergunta: str, dados_pergu
     Avalia a resposta do candidato (seja via áudio ou texto) considerando
     a técnica recomendada e expectativas específicas de curadoria.
     """
-    prompt = f"""
+    prompt_texto = f"""
     {INSIGHTS_GERAIS}
 
     CONTEXTO DA VAGA E EMPRESA:
-    Empresa: {contexto.get('empresa')}
-    Cargo: {contexto.get('cargo')}
-    Descrição da Vaga: {contexto.get('descricao')}
-    Sobre a Empresa: {contexto.get('sobre_empresa')}
+    Empresa: {contexto.get('empresa', 'Não informada')}
+    Cargo: {contexto.get('cargo', 'Não informado')}
+    Descrição da Vaga: {contexto.get('descricao', 'Não informada')}
+    Sobre a Empresa: {contexto.get('sobre_empresa', 'Não informada')}
     Perfil LinkedIn do Candidato: {contexto.get('linkedin', 'Não informado')}
     Texto do Currículo: {contexto.get('curriculo_texto', 'Não informado')}
 
     PERGUNTA DA ENTREVISTA SELECIONADA:
     "{pergunta}"
 
-    TÉCNICA ESPERADA PARA ESTA PERGUNTA: {dados_pergunta.get('tecnica')}
-    EXPECTATIVA DO RECRUTADOR: {dados_pergunta.get('expectativa')}
+    TÉCNICA ESPERADA PARA ESTA PERGUNTA: {dados_pergunta.get('tecnica', 'STAR')}
+    EXPECTATIVA DO RECRUTADOR: {dados_pergunta.get('expectativa', 'Avaliação geral')}
 
     INSTRUÇÕES DE AVALIAÇÃO:
-    1. Se houver áudio, transcreva-o primeiro na íntegra.
-    2. Avalie o alinhamento da resposta do candidato com os requisitos da vaga, o perfil do candidato (se fornecido) e a expectativa técnica da pergunta.
-    3. Retorne um feedback completo estruturado com:
+    1. Se houver áudio anexado, transcreva-o primeiro na íntegra.
+    2. Avalie o alinhamento da resposta do candidato com os requisitos da vaga e a expectativa técnica da pergunta.
+    3. Retorne um parecer claro e estruturado contendo:
        - Transcrição (se aplicável)
-       - Pontuação de Alinhamento (0 a 100%)
+       - Diagnóstico Geral e % de Alinhamento (0 a 100%)
        - Análise Técnica da Estrutura da Resposta
        - Pontos Fortes
        - Lacunas e Oportunidades de Melhoria
-       - Reescrita Ideal Sugerida (de alto impacto)
+       - Reescrita Sugerida de Alto Impacto
     """
 
     contents = []
+
+    # Se enviou áudio, inclui a parte de áudio
     if audio_bytes:
         contents.append(types.Part.from_bytes(data=audio_bytes, mime_type=audio_mime))
-    
+
+    # Se enviou texto, concatena com o prompt
     if resposta_texto:
-        contents.append(f"\nRESPOSTA ESCRITA DO CANDIDATO:\n{resposta_texto}")
+        prompt_texto += f"\n\nRESPOSTA ESCRITA DO CANDIDATO:\n{resposta_texto}"
 
-    contents.append(prompt)
+    contents.append(prompt_texto)
 
+    # Modelo corrigido para 'gemini-2.0-flash'
     response = client.models.generate_content(
-        model='gemini-2.5-flash',
+        model='gemini-2.0-flash',
         contents=contents
     )
     return response.text
 
 def simular_chat_lapidacao_com_busca(client, historico_mensagens: list, contexto_vaga: dict, pergunta: str, parecer_anterior: str):
     """
-    Chat interativo que utiliza a busca na web (Google Search Grounding) para complementar
+    Chat interativo que utiliza busca na web (Google Search Grounding) para complementar
     as informações da empresa, vaga e melhores práticas do mercado.
     """
     system_instruction = f"""
@@ -70,17 +74,17 @@ def simular_chat_lapidacao_com_busca(client, historico_mensagens: list, contexto
     Seu objetivo é ajudar o candidato a lapidar a resposta para a pergunta: "{pergunta}".
 
     DADOS DO CANDIDATO E DA VAGA:
-    - Empresa: {contexto_vaga.get('empresa')}
-    - Cargo: {contexto_vaga.get('cargo')}
-    - Descrição: {contexto_vaga.get('descricao')}
-    - Sobre a Empresa: {contexto_vaga.get('sobre_empresa')}
-    - LinkedIn: {contexto_vaga.get('linkedin')}
-    - Resumo do Currículo: {contexto_vaga.get('curriculo_texto')}
+    - Empresa: {contexto_vaga.get('empresa', 'Não informada')}
+    - Cargo: {contexto_vaga.get('cargo', 'Não informado')}
+    - Descrição: {contexto_vaga.get('descricao', 'Não informada')}
+    - Sobre a Empresa: {contexto_vaga.get('sobre_empresa', 'Não informada')}
+    - LinkedIn: {contexto_vaga.get('linkedin', 'Não informado')}
+    - Resumo do Currículo: {contexto_vaga.get('curriculo_texto', 'Não informado')}
     - Último parecer de avaliação: {parecer_anterior}
 
     DIRETRIZES:
     1. As informações fornecidas acima são suas referências principais.
-    2. Você DEVE realizar buscas na web se precisar validar novidades sobre a empresa, tendências da área, requisitos de mercado ou cultura organizacional.
+    2. Você pode realizar buscas na web se precisar validar novidades sobre a empresa, tendências ou requisitos.
     3. Dê feedbacks elegantes, práticos e construa a melhor narrativa profissional possível com o candidato.
     """
 
@@ -89,9 +93,9 @@ def simular_chat_lapidacao_com_busca(client, historico_mensagens: list, contexto
         role = "user" if msg["role"] == "user" else "model"
         contents.append({"role": role, "parts": [{"text": msg["content"]}]})
 
-    # Ativa busca integrada no Google (Google Search Grounding)
+    # Modelo corrigido para 'gemini-2.0-flash'
     response = client.models.generate_content(
-        model='gemini-2.5-flash',
+        model='gemini-2.0-flash',
         contents=contents,
         config=types.GenerateContentConfig(
             system_instruction=system_instruction,
