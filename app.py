@@ -18,7 +18,7 @@ except ImportError:
     Document = None
 
 # ============================================================
-# CONFIGURAÇÃO DE PÁGINA E DESIGN EDITORIAL PREMIUM
+# CONFIGURAÇÃO DE PÁGINA E DESIGN EDITORIAL CLEAN
 # ============================================================
 st.set_page_config(
     page_title="Interview Lab AI",
@@ -53,15 +53,13 @@ st.markdown("""
         margin-bottom: 24px;
     }
 
-    .auth-card {
-        background-color: #FFFFFF;
-        border: 1px solid #E6E1D7;
-        padding: 36px 32px;
-        border-radius: 12px;
-        box-shadow: 0 8px 30px rgba(0,0,0,0.05);
+    .auth-container {
+        max-width: 420px;
+        margin: 0 auto;
+        padding: 10px 0;
     }
 
-    /* Estilização de Botões */
+    /* Estilização Geral de Botões */
     .stButton>button {
         background-color: #111E16;
         color: #FBF9F5;
@@ -71,7 +69,6 @@ st.markdown("""
         font-family: 'Plus Jakarta Sans', sans-serif;
         font-weight: 600;
         font-size: 0.92rem;
-        letter-spacing: 0.02em;
         width: 100%;
         transition: all 0.25s ease;
     }
@@ -79,7 +76,34 @@ st.markdown("""
         background-color: #233A2C;
         border-color: #233A2C;
         color: #FFFFFF;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+
+    /* Botão Secundário para Criar Conta (Cor Diferente) */
+    div[key="btn_toggle_cad"] > button, div[key="btn_voltar_login1"] > button, div[key="btn_voltar_login2"] > button {
+        background-color: transparent !important;
+        color: #111E16 !important;
+        border: 1px solid #111E16 !important;
+    }
+    div[key="btn_toggle_cad"] > button:hover, div[key="btn_voltar_login1"] > button:hover, div[key="btn_voltar_login2"] > button:hover {
+        background-color: #111E16 !important;
+        color: #FFFFFF !important;
+    }
+
+    /* Link Discreto para Esqueci Minha Senha */
+    div[key="btn_toggle_recup"] > button {
+        background: transparent !important;
+        border: none !important;
+        color: #787267 !important;
+        font-size: 0.85rem !important;
+        font-weight: 400 !important;
+        text-decoration: underline !important;
+        padding: 0.2rem 0 !important;
+        box-shadow: none !important;
+        width: 100% !important;
+        text-align: center !important;
+    }
+    div[key="btn_toggle_recup"] > button:hover {
+        color: #111E16 !important;
     }
 
     /* Campos de Entrada */
@@ -94,40 +118,6 @@ st.markdown("""
         border-color: #111E16;
         box-shadow: 0 0 0 1px #111E16;
     }
-
-    /* Links e utilitários */
-    .forgot-pass-link {
-        text-align: right;
-        margin-top: -12px;
-        margin-bottom: 18px;
-    }
-    .forgot-pass-link button {
-        background: none !important;
-        border: none !important;
-        color: #6B655C !important;
-        font-size: 0.82rem !important;
-        text-decoration: underline !important;
-        padding: 0 !important;
-        width: auto !important;
-        box-shadow: none !important;
-    }
-    .forgot-pass-link button:hover {
-        color: #111E16 !important;
-    }
-
-    /* Stepper de progresso */
-    .step-badge {
-        display: inline-block;
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 0.78rem;
-        font-weight: 600;
-        letter-spacing: 0.05em;
-        text-transform: uppercase;
-        margin-right: 8px;
-    }
-    .step-active { background-color: #111E16; color: #FFFFFF; }
-    .step-pending { background-color: #E6E1D7; color: #787267; }
 
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
@@ -180,6 +170,9 @@ def criar_usuario(nome, email, senha):
     data = {"email": email, "nome": nome, "senha": senha}
     return supabase.table("usuarios").insert(data).execute()
 
+def atualizar_senha_usuario(email, nova_senha):
+    return supabase.table("usuarios").update({"senha": nova_senha}).eq("email", email).execute()
+
 def salvar_progresso_banco(email):
     dados_atualizados = {
         "contexto_vaga": st.session_state.get("contexto_vaga", {}),
@@ -189,7 +182,7 @@ def salvar_progresso_banco(email):
     supabase.table("usuarios").update(dados_atualizados).eq("email", email).execute()
 
 # ============================================================
-# TELA DE AUTENTICAÇÃO LIMPA E ELEGANTE
+# TELA DE AUTENTICAÇÃO LIMPA E ALINHADA
 # ============================================================
 if "usuario_logado" not in st.session_state:
     st.session_state["usuario_logado"] = None
@@ -199,29 +192,21 @@ if "auth_mode" not in st.session_state:
 
 if not st.session_state["usuario_logado"]:
     st.markdown("""
-    <div style="text-align: center; padding: 3rem 0 1.5rem 0;">
-        <p style="letter-spacing: 4px; font-size: 0.78rem; text-transform: uppercase; color: #787267; font-weight: 600;">— Platform de Preparação Executiva —</p>
-        <h1 style="font-size: 3.2rem; font-style: italic; margin-top: 0.2rem;">Interview Lab AI</h1>
+    <div style="text-align: center; padding: 2.5rem 0 1.5rem 0;">
+        <p style="letter-spacing: 3px; font-size: 0.8rem; text-transform: uppercase; color: #787267; font-weight: 600;">— Plataforma de Treinamento para Entrevista —</p>
+        <h1 style="font-size: 3.2rem; font-style: italic; margin-top: 0.2rem; margin-bottom: 0;">Interview Lab AI</h1>
     </div>
     """, unsafe_allow_html=True)
     
-    col_centered = st.columns([1, 1.4, 1])[1]
+    col_centered = st.columns([1, 1.2, 1])[1]
     with col_centered:
-        st.markdown('<div class="auth-card">', unsafe_allow_html=True)
         
         # MODO 1: LOGIN PRINCIPAL
         if st.session_state["auth_mode"] == "login":
-            st.markdown("<h3 style='margin-bottom: 1.5rem; font-size: 1.6rem;'>Entrar na plataforma</h3>", unsafe_allow_html=True)
             email = st.text_input("E-mail profissional", key="login_email")
             senha = st.text_input("Senha", type="password", key="login_senha")
             
-            # Botão "Esqueci minha senha" no canto direito abaixo do campo
-            col_blank, col_forgot = st.columns([1, 1])
-            with col_forgot:
-                if st.button("Esqueci minha senha", key="btn_toggle_recup"):
-                    st.session_state["auth_mode"] = "recuperar"
-                    st.rerun()
-
+            st.write("")
             if st.button("Entrar na Conta ➔", key="btn_login"):
                 user = buscar_usuario(email)
                 if user and user["senha"] == senha:
@@ -238,19 +223,26 @@ if not st.session_state["usuario_logado"]:
                 else:
                     st.error("E-mail ou senha incorretos.")
 
-            st.markdown("<hr style='border: none; border-top: 1px solid #E6E1D7; margin: 1.8rem 0 1.2rem 0;'>", unsafe_allow_html=True)
-            st.markdown("<p style='text-align: center; font-size: 0.88rem; color: #787267; margin-bottom: 0.5rem;'>Ainda não possui um acesso?</p>", unsafe_allow_html=True)
+            # Esqueci minha senha sutil e centralizado logo abaixo do botão
+            if st.button("Esqueci minha senha", key="btn_toggle_recup"):
+                st.session_state["auth_mode"] = "recuperar"
+                st.rerun()
+
+            st.markdown("<div style='margin-top: 2.5rem; text-align: center;'>", unsafe_allow_html=True)
+            st.markdown("<p style='font-size: 0.88rem; color: #787267; margin-bottom: 0.6rem;'>Ainda não possui um acesso?</p>", unsafe_allow_html=True)
             if st.button("Criar nova conta de candidato", key="btn_toggle_cad"):
                 st.session_state["auth_mode"] = "cadastro"
                 st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
 
         # MODO 2: CRIAR CONTA
         elif st.session_state["auth_mode"] == "cadastro":
-            st.markdown("<h3 style='margin-bottom: 1.5rem; font-size: 1.6rem;'>Criar nova conta</h3>", unsafe_allow_html=True)
+            st.markdown("<h3 style='text-align: center; margin-bottom: 1.5rem; font-size: 1.6rem;'>Criar nova conta</h3>", unsafe_allow_html=True)
             novo_nome = st.text_input("Nome completo", key="cad_nome")
             novo_email = st.text_input("E-mail profissional", key="cad_email")
             nova_senha = st.text_input("Defina uma senha", type="password", key="cad_senha")
 
+            st.write("")
             if st.button("Finalizar Cadastro e Acessar ➔", key="btn_cadastrar"):
                 if buscar_usuario(novo_email):
                     st.warning("Este e-mail já está cadastrado.")
@@ -265,33 +257,42 @@ if not st.session_state["usuario_logado"]:
                 else:
                     st.warning("Preencha todos os campos obrigatórios.")
 
-            st.markdown("<hr style='border: none; border-top: 1px solid #E6E1D7; margin: 1.8rem 0 1.2rem 0;'>", unsafe_allow_html=True)
-            if st.button("Já tem uma conta? Voltar ao Login", key="btn_voltar_login1"):
+            st.markdown("<div style='margin-top: 2rem;'>", unsafe_allow_html=True)
+            if st.button("Voltar ao Login", key="btn_voltar_login1"):
                 st.session_state["auth_mode"] = "login"
                 st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
 
-        # MODO 3: ESQUECI MINHA SENHA
+        # MODO 3: REDEFINIÇÃO DIRETA DE SENHA
         elif st.session_state["auth_mode"] == "recuperar":
-            st.markdown("<h3 style='margin-bottom: 1rem; font-size: 1.5rem;'>Recuperação de Senha</h3>", unsafe_allow_html=True)
-            st.markdown("<p style='font-size: 0.88rem; color: #6B655C; margin-bottom: 1.2rem;'>Digite seu e-mail cadastrado para enviarmos as instruções de redefinição.</p>", unsafe_allow_html=True)
+            st.markdown("<h3 style='text-align: center; margin-bottom: 0.5rem; font-size: 1.5rem;'>Redefinir Senha</h3>", unsafe_allow_html=True)
+            st.markdown("<p style='text-align: center; font-size: 0.88rem; color: #6B655C; margin-bottom: 1.5rem;'>Informe seu e-mail cadastrado e defina a nova senha.</p>", unsafe_allow_html=True)
+            
             email_recup = st.text_input("E-mail cadastrado", key="recup_email")
+            nova_senha_recup = st.text_input("Nova Senha", type="password", key="recup_nova_senha")
+            confirmar_senha = st.text_input("Confirmar Nova Senha", type="password", key="recup_conf_senha")
 
-            if st.button("Enviar link de redefinição", key="btn_enviar_recup"):
-                if email_recup:
-                    try:
-                        supabase.auth.reset_password_for_email(email_recup)
-                        st.success("Instruções enviadas! Verifique sua caixa de entrada.")
-                    except Exception:
-                        st.info("Se o e-mail estiver cadastrado, você receberá o link de recuperação.")
+            st.write("")
+            if st.button("Atualizar Senha ➔", key="btn_confirmar_recup"):
+                if not email_recup or not nova_senha_recup or not confirmar_senha:
+                    st.warning("Preencha todos os campos.")
+                elif nova_senha_recup != confirmar_senha:
+                    st.error("As senhas digitadas não coincidem.")
                 else:
-                    st.warning("Digite seu e-mail.")
+                    user = buscar_usuario(email_recup)
+                    if user:
+                        atualizar_senha_usuario(email_recup, nova_senha_recup)
+                        st.success("Senha alterada com sucesso!")
+                        st.session_state["auth_mode"] = "login"
+                        st.rerun()
+                    else:
+                        st.error("Nenhuma conta encontrada com este e-mail.")
 
-            st.markdown("<hr style='border: none; border-top: 1px solid #E6E1D7; margin: 1.8rem 0 1.2rem 0;'>", unsafe_allow_html=True)
+            st.markdown("<div style='margin-top: 2rem;'>", unsafe_allow_html=True)
             if st.button("Voltar ao Login", key="btn_voltar_login2"):
                 st.session_state["auth_mode"] = "login"
                 st.rerun()
-
-        st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
     st.stop()
 
@@ -334,7 +335,6 @@ if st.session_state.get("etapa2_concluida"):
 if "etapa_selecionada" not in st.session_state or st.session_state["etapa_selecionada"] not in etapas_lista:
     st.session_state["etapa_selecionada"] = etapas_lista[0]
 
-# Barra Seletora de Etapas Elegante
 etapa_atual = st.radio(
     "Navegação por Etapas:",
     options=etapas_lista,
@@ -343,7 +343,6 @@ etapa_atual = st.radio(
     key="etapa_radio_main"
 )
 
-# Atualização sincronizada
 st.session_state["etapa_selecionada"] = etapa_atual
 
 # ============================================================
@@ -384,7 +383,6 @@ if st.session_state["etapa_selecionada"] == "1. Contexto da Vaga":
             st.session_state["etapa1_concluida"] = True
             salvar_progresso_banco(st.session_state["usuario_logado"])
             
-            # Redirecionamento instantâneo para Etapa 2
             st.session_state["etapa_selecionada"] = "2. Painel de Simulação"
             st.rerun()
             
@@ -455,7 +453,6 @@ elif st.session_state["etapa_selecionada"] == "2. Painel de Simulação":
                 st.session_state["etapa2_concluida"] = True
                 salvar_progresso_banco(st.session_state["usuario_logado"])
                 
-                # Redirecionamento instantâneo para Etapa 3
                 st.session_state["etapa_selecionada"] = "3. Lapidação & Feedback"
                 st.rerun()
 
