@@ -18,7 +18,7 @@ except ImportError:
     Document = None
 
 # ============================================================
-# CONFIGURAÇÃO DE PÁGINA E CSS EDITORIAL
+# CONFIGURAÇÃO DE PÁGINA E DESIGN EDITORIAL PREMIUM
 # ============================================================
 st.set_page_config(
     page_title="Interview Lab AI",
@@ -29,50 +29,105 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Plus+Jakarta+Sans:wght@300;400;500;600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,400&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
 
     .stApp {
-        background-color: #FBF9F5;
+        background-color: #F8F6F0;
         color: #2C2A29;
         font-family: 'Plus Jakarta Sans', sans-serif;
     }
 
-    h1, h2, h3, h4, .editorial-title {
-        font-family: 'Playfair Display', serif;
-        color: #1E3023;
-        font-weight: 700;
+    h1, h2, h3, h4 {
+        font-family: 'Playfair Display', serif !important;
+        color: #111E16 !important;
+        letter-spacing: -0.02em;
     }
 
+    /* Cartão Editorial Elevado */
     .editorial-card {
-        background-color: #F4F1EA;
-        border: 1px solid #E3DED4;
-        padding: 24px;
-        border-radius: 4px;
-        margin-bottom: 20px;
+        background-color: #FFFFFF;
+        border: 1px solid #E6E1D7;
+        padding: 28px;
+        border-radius: 8px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.03);
+        margin-bottom: 24px;
     }
 
+    .auth-card {
+        background-color: #FFFFFF;
+        border: 1px solid #E6E1D7;
+        padding: 36px 32px;
+        border-radius: 12px;
+        box-shadow: 0 8px 30px rgba(0,0,0,0.05);
+    }
+
+    /* Estilização de Botões */
     .stButton>button {
-        background-color: #1E3023;
+        background-color: #111E16;
         color: #FBF9F5;
-        border: none;
-        border-radius: 2px;
-        padding: 0.6rem 1.2rem;
+        border: 1px solid #111E16;
+        border-radius: 4px;
+        padding: 0.65rem 1.4rem;
         font-family: 'Plus Jakarta Sans', sans-serif;
-        font-weight: 500;
+        font-weight: 600;
+        font-size: 0.92rem;
+        letter-spacing: 0.02em;
         width: 100%;
-        transition: all 0.3s ease;
+        transition: all 0.25s ease;
     }
     .stButton>button:hover {
-        background-color: #2C4233;
+        background-color: #233A2C;
+        border-color: #233A2C;
         color: #FFFFFF;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
     }
 
+    /* Campos de Entrada */
     .stTextInput>div>div>input, .stSelectbox>div>div>div, .stTextArea>div>div>textarea {
-        background-color: #FFFFFF;
+        background-color: #FAFAFA;
         border: 1px solid #DCD6CD;
-        border-radius: 2px;
+        border-radius: 6px;
         color: #2C2A29;
+        font-size: 0.95rem;
     }
+    .stTextInput>div>div>input:focus, .stTextArea>div>div>textarea:focus {
+        border-color: #111E16;
+        box-shadow: 0 0 0 1px #111E16;
+    }
+
+    /* Links e utilitários */
+    .forgot-pass-link {
+        text-align: right;
+        margin-top: -12px;
+        margin-bottom: 18px;
+    }
+    .forgot-pass-link button {
+        background: none !important;
+        border: none !important;
+        color: #6B655C !important;
+        font-size: 0.82rem !important;
+        text-decoration: underline !important;
+        padding: 0 !important;
+        width: auto !important;
+        box-shadow: none !important;
+    }
+    .forgot-pass-link button:hover {
+        color: #111E16 !important;
+    }
+
+    /* Stepper de progresso */
+    .step-badge {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 0.78rem;
+        font-weight: 600;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        margin-right: 8px;
+    }
+    .step-active { background-color: #111E16; color: #FFFFFF; }
+    .step-pending { background-color: #E6E1D7; color: #787267; }
 
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
@@ -134,32 +189,44 @@ def salvar_progresso_banco(email):
     supabase.table("usuarios").update(dados_atualizados).eq("email", email).execute()
 
 # ============================================================
-# TELA DE LOGIN / CADASTRO / ESQUECI A SENHA
+# TELA DE AUTENTICAÇÃO LIMPA E ELEGANTE
 # ============================================================
 if "usuario_logado" not in st.session_state:
     st.session_state["usuario_logado"] = None
 
+if "auth_mode" not in st.session_state:
+    st.session_state["auth_mode"] = "login"
+
 if not st.session_state["usuario_logado"]:
     st.markdown("""
-    <div style="text-align: center; padding: 2rem 0 1rem 0;">
-        <p style="letter-spacing: 3px; font-size: 0.85rem; text-transform: uppercase; color: #5A655D;">— Atelier de Carreiras & Simulações —</p>
-        <h1 style="font-size: 2.8rem; font-style: italic;">Interview Lab AI</h1>
+    <div style="text-align: center; padding: 3rem 0 1.5rem 0;">
+        <p style="letter-spacing: 4px; font-size: 0.78rem; text-transform: uppercase; color: #787267; font-weight: 600;">— Platform de Preparação Executiva —</p>
+        <h1 style="font-size: 3.2rem; font-style: italic; margin-top: 0.2rem;">Interview Lab AI</h1>
     </div>
     """, unsafe_allow_html=True)
     
-    col_centered = st.columns([1, 2, 1])[1]
+    col_centered = st.columns([1, 1.4, 1])[1]
     with col_centered:
-        aba_auth1, aba_auth2, aba_auth3 = st.tabs(["Entrar na minha conta", "Criar nova conta", "Esqueci minha senha"])
+        st.markdown('<div class="auth-card">', unsafe_allow_html=True)
         
-        with aba_auth1:
-            email = st.text_input("E-mail", key="login_email")
+        # MODO 1: LOGIN PRINCIPAL
+        if st.session_state["auth_mode"] == "login":
+            st.markdown("<h3 style='margin-bottom: 1.5rem; font-size: 1.6rem;'>Entrar na plataforma</h3>", unsafe_allow_html=True)
+            email = st.text_input("E-mail profissional", key="login_email")
             senha = st.text_input("Senha", type="password", key="login_senha")
-            if st.button("Entrar na minha conta ➔"):
+            
+            # Botão "Esqueci minha senha" no canto direito abaixo do campo
+            col_blank, col_forgot = st.columns([1, 1])
+            with col_forgot:
+                if st.button("Esqueci minha senha", key="btn_toggle_recup"):
+                    st.session_state["auth_mode"] = "recuperar"
+                    st.rerun()
+
+            if st.button("Entrar na Conta ➔", key="btn_login"):
                 user = buscar_usuario(email)
                 if user and user["senha"] == senha:
                     st.session_state["usuario_logado"] = email
                     st.session_state["usuario_nome"] = user["nome"]
-                    # Restaura histórico do banco de dados
                     st.session_state["contexto_vaga"] = user.get("contexto_vaga") or {}
                     st.session_state["avaliacoes"] = user.get("avaliacoes") or []
                     st.session_state["mensagens_chat"] = user.get("mensagens_chat") or []
@@ -167,17 +234,24 @@ if not st.session_state["usuario_logado"]:
                     st.session_state["etapa1_concluida"] = bool(st.session_state["contexto_vaga"].get("empresa"))
                     st.session_state["etapa2_concluida"] = len(st.session_state["avaliacoes"]) > 0
                     st.session_state["etapa_selecionada"] = "1. Contexto da Vaga"
-                    
-                    st.success(f"Bem-vindo(a) de volta, {user['nome']}!")
                     st.rerun()
                 else:
                     st.error("E-mail ou senha incorretos.")
-                    
-        with aba_auth2:
+
+            st.markdown("<hr style='border: none; border-top: 1px solid #E6E1D7; margin: 1.8rem 0 1.2rem 0;'>", unsafe_allow_html=True)
+            st.markdown("<p style='text-align: center; font-size: 0.88rem; color: #787267; margin-bottom: 0.5rem;'>Ainda não possui um acesso?</p>", unsafe_allow_html=True)
+            if st.button("Criar nova conta de candidato", key="btn_toggle_cad"):
+                st.session_state["auth_mode"] = "cadastro"
+                st.rerun()
+
+        # MODO 2: CRIAR CONTA
+        elif st.session_state["auth_mode"] == "cadastro":
+            st.markdown("<h3 style='margin-bottom: 1.5rem; font-size: 1.6rem;'>Criar nova conta</h3>", unsafe_allow_html=True)
             novo_nome = st.text_input("Nome completo", key="cad_nome")
-            novo_email = st.text_input("E-mail", key="cad_email")
-            nova_senha = st.text_input("Senha", type="password", key="cad_senha")
-            if st.button("Cadastrar e Acessar"):
+            novo_email = st.text_input("E-mail profissional", key="cad_email")
+            nova_senha = st.text_input("Defina uma senha", type="password", key="cad_senha")
+
+            if st.button("Finalizar Cadastro e Acessar ➔", key="btn_cadastrar"):
                 if buscar_usuario(novo_email):
                     st.warning("Este e-mail já está cadastrado.")
                 elif novo_email and nova_senha and novo_nome:
@@ -187,49 +261,60 @@ if not st.session_state["usuario_logado"]:
                     st.session_state["etapa1_concluida"] = False
                     st.session_state["etapa2_concluida"] = False
                     st.session_state["etapa_selecionada"] = "1. Contexto da Vaga"
-                    st.success("Conta criada com sucesso!")
                     st.rerun()
                 else:
-                    st.warning("Preencha todos os campos.")
+                    st.warning("Preencha todos os campos obrigatórios.")
 
-        with aba_auth3:
-            email_recuperacao = st.text_input("Insira o e-mail cadastrado para redefinir sua senha", key="recup_email")
-            if st.button("Enviar e-mail de redefinição"):
-                if not email_recuperacao:
-                    st.warning("Por favor, digite seu e-mail.")
+            st.markdown("<hr style='border: none; border-top: 1px solid #E6E1D7; margin: 1.8rem 0 1.2rem 0;'>", unsafe_allow_html=True)
+            if st.button("Já tem uma conta? Voltar ao Login", key="btn_voltar_login1"):
+                st.session_state["auth_mode"] = "login"
+                st.rerun()
+
+        # MODO 3: ESQUECI MINHA SENHA
+        elif st.session_state["auth_mode"] == "recuperar":
+            st.markdown("<h3 style='margin-bottom: 1rem; font-size: 1.5rem;'>Recuperação de Senha</h3>", unsafe_allow_html=True)
+            st.markdown("<p style='font-size: 0.88rem; color: #6B655C; margin-bottom: 1.2rem;'>Digite seu e-mail cadastrado para enviarmos as instruções de redefinição.</p>", unsafe_allow_html=True)
+            email_recup = st.text_input("E-mail cadastrado", key="recup_email")
+
+            if st.button("Enviar link de redefinição", key="btn_enviar_recup"):
+                if email_recup:
+                    try:
+                        supabase.auth.reset_password_for_email(email_recup)
+                        st.success("Instruções enviadas! Verifique sua caixa de entrada.")
+                    except Exception:
+                        st.info("Se o e-mail estiver cadastrado, você receberá o link de recuperação.")
                 else:
-                    user = buscar_usuario(email_recuperacao)
-                    if user:
-                        try:
-                            supabase.auth.reset_password_for_email(email_recuperacao)
-                            st.success("Enviamos as instruções para o seu e-mail para redefinição da senha!")
-                        except Exception as e:
-                            st.info(f"Instruções enviadas para {email_recuperacao} se cadastrado na plataforma.")
-                    else:
-                        st.info(f"Se o e-mail {email_recuperacao} estiver cadastrado, você receberá um link de recuperação.")
+                    st.warning("Digite seu e-mail.")
+
+            st.markdown("<hr style='border: none; border-top: 1px solid #E6E1D7; margin: 1.8rem 0 1.2rem 0;'>", unsafe_allow_html=True)
+            if st.button("Voltar ao Login", key="btn_voltar_login2"):
+                st.session_state["auth_mode"] = "login"
+                st.rerun()
+
+        st.markdown('</div>', unsafe_allow_html=True)
 
     st.stop()
 
 # ============================================================
-# CABEÇALHO DA APLICAÇÃO LOGADA
+# CABEÇALHO & IDENTIDADE LOGADA
 # ============================================================
-col_head1, col_head2 = st.columns([4, 1])
+col_head1, col_head2 = st.columns([4, 1.2])
 with col_head1:
     st.markdown("""
-    <div style="padding: 1rem 0 0.5rem 0;">
-        <h1 style="font-size: 2.5rem; margin-bottom: 0;">Interview Lab AI</h1>
-        <p style="color: #6C665F; font-size: 0.95rem;">Um espaço refinado para estruturar respostas e lapidar sua narrativa profissional.</p>
+    <div style="padding: 0.5rem 0 0.2rem 0;">
+        <h1 style="font-size: 2.3rem; margin-bottom: 0px;">Interview Lab AI</h1>
+        <p style="color: #787267; font-size: 0.95rem; margin-top: -4px;">Laboratório de Simulação e Lapidação Narrativa para Entrevistas Executivas.</p>
     </div>
     """, unsafe_allow_html=True)
 with col_head2:
-    st.markdown(f"<p style='text-align: right; padding-top: 1.5rem;'>👤 <b>{st.session_state.get('usuario_nome', 'Candidato')}</b></p>", unsafe_allow_html=True)
-    if st.button("Sair / Logout"):
+    st.markdown(f"<div style='text-align: right; padding-top: 0.8rem;'><span style='font-size: 0.85rem; color: #787267;'>Candidato Conectado</span><br><b>{st.session_state.get('usuario_nome', 'Candidato')}</b></div>", unsafe_allow_html=True)
+    if st.button("Sair da Sessão", key="btn_logout"):
         st.session_state.clear()
         st.rerun()
 
-st.markdown("<hr style='border: none; border-top: 1px solid #E3DED4; margin: 1rem 0;'>", unsafe_allow_html=True)
+st.markdown("<hr style='border: none; border-top: 1px solid #E6E1D7; margin: 0.8rem 0 1.5rem 0;'>", unsafe_allow_html=True)
 
-# Chave API Gemini
+# Validação do Cliente Gemini
 api_key = st.secrets.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY")
 if not api_key:
     st.warning("Chave GEMINI_API_KEY não configurada nos Secrets.")
@@ -238,53 +323,53 @@ if not api_key:
 client = get_client(api_key)
 
 # ============================================================
-# NAVEGAÇÃO PROGRESSIVA (DESBLOQUEIO CONDICIONAL E NAVEGAÇÃO DIRETA)
+# GERENCIAMENTO DAS ETAPAS E PROGRESSO
 # ============================================================
-etapas_disponiveis = ["1. Contexto da Vaga"]
+etapas_lista = ["1. Contexto da Vaga"]
 if st.session_state.get("etapa1_concluida"):
-    etapas_disponiveis.append("2. Painel de Simulação")
+    etapas_lista.append("2. Painel de Simulação")
 if st.session_state.get("etapa2_concluida"):
-    etapas_disponiveis.append("3. Lapidação & Feedback")
+    etapas_lista.append("3. Lapidação & Feedback")
 
-# Define a etapa inicial padrão se não definida
-if "etapa_selecionada" not in st.session_state or st.session_state["etapa_selecionada"] not in etapas_disponiveis:
-    st.session_state["etapa_selecionada"] = etapas_disponiveis[0]
+if "etapa_selecionada" not in st.session_state or st.session_state["etapa_selecionada"] not in etapas_lista:
+    st.session_state["etapa_selecionada"] = etapas_lista[0]
 
-etapa_selecionada = st.radio(
-    "Etapas de Preparação:",
-    options=etapas_disponiveis,
-    index=etapas_disponiveis.index(st.session_state["etapa_selecionada"]),
+# Barra Seletora de Etapas Elegante
+etapa_atual = st.radio(
+    "Navegação por Etapas:",
+    options=etapas_lista,
+    index=etapas_lista.index(st.session_state["etapa_selecionada"]),
     horizontal=True,
-    key="etapa_radio",
-    label_visibility="collapsed"
+    key="etapa_radio_main"
 )
-st.session_state["etapa_selecionada"] = etapa_selecionada
 
-st.markdown("<hr style='margin-top: 0.5rem; margin-bottom: 1.5rem;'>", unsafe_allow_html=True)
+# Atualização sincronizada
+st.session_state["etapa_selecionada"] = etapa_atual
 
 # ============================================================
 # ETAPA 1 — CONTEXTO DA VAGA
 # ============================================================
-if etapa_selecionada == "1. Contexto da Vaga":
-    st.markdown("### Defina o Contexto da Vaga")
-    st.markdown("<p style='color: #6C665F;'>Insira os detalhes da empresa, cargo e suas informações opcionais de perfil.</p>", unsafe_allow_html=True)
+if st.session_state["etapa_selecionada"] == "1. Contexto da Vaga":
+    st.markdown('<div class="editorial-card">', unsafe_allow_html=True)
+    st.markdown("<h3>Etapa 1 — Contexto da Vaga & Perfil</h3>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #6B655C; font-size: 0.92rem; margin-bottom: 1.5rem;'>Insira os detalhes estratégicos do cargo pretendido. A IA utilizará esses dados para personalizar a avaliação.</p>", unsafe_allow_html=True)
     
     ctx = st.session_state.get("contexto_vaga", {})
     
-    col1, col2 = st.columns(2, gap="large")
+    col1, col2 = st.columns(2, gap="medium")
     with col1:
-        empresa = st.text_input("Nome da Empresa Alvo", value=ctx.get("empresa", ""), placeholder="Ex: Google, Banco ABC...")
-        linkedin = st.text_input("Link do LinkedIn (Opcional)", value=ctx.get("linkedin", ""), placeholder="Ex: https://linkedin.com/in/seu-perfil")
+        empresa = st.text_input("Empresa Alvo", value=ctx.get("empresa", ""), placeholder="Ex: Google, Itaú, Ambev...")
+        linkedin = st.text_input("Perfil do LinkedIn (Opcional)", value=ctx.get("linkedin", ""), placeholder="https://linkedin.com/in/seu-perfil")
     with col2:
-        cargo = st.text_input("Cargo / Posição Desejada", value=ctx.get("cargo", ""), placeholder="Ex: Product Manager, Analista...")
-        curriculo_file = st.file_uploader("Anexar Currículo (Opcional - PDF, DOCX, TXT)", type=["pdf", "docx", "txt"])
+        cargo = st.text_input("Cargo Desejado", value=ctx.get("cargo", ""), placeholder="Ex: Gerente de Produto, Tech Lead...")
+        curriculo_file = st.file_uploader("Upload de Currículo (PDF, DOCX)", type=["pdf", "docx", "txt"])
 
-    descricao = st.text_area("Descrição e Requisitos da Vaga", value=ctx.get("descricao", ""), placeholder="Cole os requisitos exigidos pela vaga...")
-    sobre_empresa = st.text_area("Sobre a empresa (descrição, cultura, valores, etc)", value=ctx.get("sobre_empresa", ""), placeholder="Ex: Foco em inovação, autonomia, foco em clientes...")
+    descricao = st.text_area("Descrição & Requisitos da Vaga", value=ctx.get("descricao", ""), height=120, placeholder="Cole aqui os principais requisitos e responsabilidades do anúncio...")
+    sobre_empresa = st.text_area("Sobre a Empresa & Cultura (Opcional)", value=ctx.get("sobre_empresa", ""), height=90, placeholder="Valores, momento de mercado, novos projetos...")
 
-    if st.button("Salvar Contexto e Avançar para Etapa 2 ➔"):
+    if st.button("Salvar Contexto e Avançar para Etapa 2 ➔", key="btn_salvar_e1"):
         if not empresa or not cargo or not descricao:
-            st.warning("Preencha pelo menos Nome da Empresa, Cargo e Descrição da vaga.")
+            st.warning("Preencha pelo menos a Empresa, Cargo e Descrição da Vaga.")
         else:
             curriculo_texto = extrair_texto_curriculo(curriculo_file) if curriculo_file else ctx.get("curriculo_texto", "")
             
@@ -298,53 +383,56 @@ if etapa_selecionada == "1. Contexto da Vaga":
             }
             st.session_state["etapa1_concluida"] = True
             salvar_progresso_banco(st.session_state["usuario_logado"])
-            # Redirecionamento Automático para a Etapa 2
+            
+            # Redirecionamento instantâneo para Etapa 2
             st.session_state["etapa_selecionada"] = "2. Painel de Simulação"
-            st.success("Contexto salvo! Direcionando para o Painel de Simulação...")
             st.rerun()
+            
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # ============================================================
 # ETAPA 2 — PAINEL DE SIMULAÇÃO
 # ============================================================
-elif etapa_selecionada == "2. Painel de Simulação":
-    # Botão de Voltar para a Etapa 1
-    if st.button("⬅ Voltar para 1. Contexto da Vaga"):
-        st.session_state["etapa_selecionada"] = "1. Contexto da Vaga"
-        st.rerun()
+elif st.session_state["etapa_selecionada"] == "2. Painel de Simulação":
+    col_nav1, col_nav2 = st.columns([1.5, 4])
+    with col_nav1:
+        if st.button("⬅ Voltar para Contexto da Vaga", key="btn_voltar_e1"):
+            st.session_state["etapa_selecionada"] = "1. Contexto da Vaga"
+            st.rerun()
 
-    st.markdown("### Simulação de Pergunta & Resposta")
-    st.markdown("<p style='color: #6C665F;'>Escolha uma pergunta da curadoria e responda por texto ou gravando um áudio.</p>", unsafe_allow_html=True)
+    st.markdown('<div class="editorial-card">', unsafe_allow_html=True)
+    st.markdown("<h3>Etapa 2 — Simulação & Avaliação Técnica</h3>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #6B655C; font-size: 0.92rem; margin-bottom: 1.5rem;'>Selecione uma pergunta técnica ou comportamental e responda via texto ou áudio.</p>", unsafe_allow_html=True)
     
     lista_perguntas = list(PERGUNTAS_CURATORIA.keys())
-    pergunta_selecionada = st.selectbox("Selecione a pergunta para simular:", options=lista_perguntas)
-    
+    pergunta_selecionada = st.selectbox("Escolha a Pergunta para Simular:", options=lista_perguntas)
     dados_pergunta = PERGUNTAS_CURATORIA[pergunta_selecionada]
     
     st.markdown(f"""
-    <div class="editorial-card" style="padding: 14px; margin-top: 10px;">
-        <small><b>Técnica Sugerida:</b> {dados_pergunta['tecnica']}</small><br>
-        <small><b>Expectativa do Avaliador:</b> {dados_pergunta['expectativa']}</small>
+    <div style="background-color: #FAFAFA; border: 1px solid #E6E1D7; padding: 14px 18px; border-radius: 6px; margin: 10px 0 20px 0;">
+        <span style="font-size: 0.85rem; color: #111E16; font-weight: 700;">METODOLOGIA SUGERIDA:</span> <span style="font-size: 0.88rem; color: #4A453E;">{dados_pergunta['tecnica']}</span><br>
+        <span style="font-size: 0.85rem; color: #111E16; font-weight: 700;">FOCO DO AVALIADOR:</span> <span style="font-size: 0.88rem; color: #4A453E;">{dados_pergunta['expectativa']}</span>
     </div>
     """, unsafe_allow_html=True)
     
-    tipo_resposta = st.radio("Formato da Resposta:", ["Texto", "Áudio"], horizontal=True)
+    tipo_resposta = st.radio("Formato da Resposta:", ["Texto", "Áudio"], horizontal=True, key="tipo_resp_radio")
     
     resposta_texto = None
     audio_bytes = None
     
     if tipo_resposta == "Texto":
-        resposta_texto = st.text_area("Sua Resposta:", placeholder="Estruture sua resposta...", height=180)
+        resposta_texto = st.text_area("Sua Resposta:", placeholder="Desenvolva sua resposta utilizando a técnica sugerida...", height=180)
     else:
-        st.markdown("<label>Grave sua resposta em áudio:</label>", unsafe_allow_html=True)
-        audio_input = st.audio_input("Clique para gravar")
+        st.markdown("<label style='font-size: 0.9rem; font-weight: 600;'>Grave a sua resposta:</label>", unsafe_allow_html=True)
+        audio_input = st.audio_input("Gravador de voz")
         if audio_input:
             audio_bytes = audio_input.read()
 
-    if st.button("Enviar, Avaliar e Avançar para Etapa 3 ➔"):
+    if st.button("Enviar, Avaliar e Avançar para Etapa 3 ➔", key="btn_avaliar_e2"):
         if not resposta_texto and not audio_bytes:
-            st.warning("Por favor, digite a resposta ou grave um áudio para prosseguir.")
+            st.warning("Por favor, forneça uma resposta em texto ou grave um áudio.")
         else:
-            with st.spinner("Analisando com critérios de curadoria e inteligência de mercado..."):
+            with st.spinner("Analisando alinhamento estratégico com o Gemini..."):
                 resultado = avaliar_resposta_completa(
                     client=client,
                     contexto=st.session_state.get("contexto_vaga", {}),
@@ -367,26 +455,31 @@ elif etapa_selecionada == "2. Painel de Simulação":
                 st.session_state["etapa2_concluida"] = True
                 salvar_progresso_banco(st.session_state["usuario_logado"])
                 
-                # Redirecionamento Automático para a Etapa 3
+                # Redirecionamento instantâneo para Etapa 3
                 st.session_state["etapa_selecionada"] = "3. Lapidação & Feedback"
                 st.rerun()
 
+    st.markdown('</div>', unsafe_allow_html=True)
+
     if st.session_state.get("ultima_avaliacao"):
-        st.markdown("---")
-        st.markdown("### Último Parecer Técnico do Avaliador")
+        st.markdown('<div class="editorial-card">', unsafe_allow_html=True)
+        st.markdown("### Último Parecer Técnico Gerado")
         st.markdown(st.session_state["ultima_avaliacao"])
+        st.markdown('</div>', unsafe_allow_html=True)
 
 # ============================================================
 # ETAPA 3 — LAPIDAÇÃO & FEEDBACK
 # ============================================================
-elif etapa_selecionada == "3. Lapidação & Feedback":
-    # Botão de Voltar para a Etapa 2
-    if st.button("⬅ Voltar para 2. Painel de Simulação"):
-        st.session_state["etapa_selecionada"] = "2. Painel de Simulação"
-        st.rerun()
+elif st.session_state["etapa_selecionada"] == "3. Lapidação & Feedback":
+    col_nav1, col_nav2 = st.columns([1.5, 4])
+    with col_nav1:
+        if st.button("⬅ Voltar para Simulação", key="btn_voltar_e2"):
+            st.session_state["etapa_selecionada"] = "2. Painel de Simulação"
+            st.rerun()
 
-    st.markdown("### Atelier de Lapidação (Chat com IA)")
-    st.markdown("<p style='color: #6C665F;'>Refine pontos específicos, solicite reescritas e tire dúvidas com pesquisa em tempo real na web.</p>", unsafe_allow_html=True)
+    st.markdown('<div class="editorial-card">', unsafe_allow_html=True)
+    st.markdown("<h3>Etapa 3 — Atelier de Lapidação Narrativa</h3>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #6B655C; font-size: 0.92rem; margin-bottom: 1.5rem;'>Converse com o mentor de inteligência para ajustar métricas, storytelling e pesquisar tendências da empresa no mercado em tempo real.</p>", unsafe_allow_html=True)
     
     if "mensagens_chat" not in st.session_state:
         st.session_state["mensagens_chat"] = []
@@ -395,13 +488,13 @@ elif etapa_selecionada == "3. Lapidação & Feedback":
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
             
-    prompt_usuario = st.chat_input("Ex: Como posso resumir essa resposta para caber em 2 minutos?")
+    prompt_usuario = st.chat_input("Ex: Como posso destacar minha experiência com liderança nessa resposta?")
     if prompt_usuario:
         st.session_state["mensagens_chat"].append({"role": "user", "content": prompt_usuario})
         with st.chat_message("user"):
             st.markdown(prompt_usuario)
             
-        with st.spinner("Pesquisando dados adicionais na web e lapidando resposta..."):
+        with st.spinner("Buscando dados adicionais no mercado e estruturando feedback..."):
             resposta_ia = simular_chat_lapidacao_com_busca(
                 client=client,
                 historico_mensagens=st.session_state["mensagens_chat"],
@@ -413,3 +506,5 @@ elif etapa_selecionada == "3. Lapidação & Feedback":
             salvar_progresso_banco(st.session_state["usuario_logado"])
             with st.chat_message("assistant"):
                 st.markdown(resposta_ia)
+                
+    st.markdown('</div>', unsafe_allow_html=True)
