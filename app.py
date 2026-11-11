@@ -2,6 +2,7 @@ import os
 import io
 import streamlit as st
 from google import genai
+from supabase import create_client, Client
 from curadoria import PERGUNTAS_CURATORIA
 from gemini_engine import get_client, avaliar_resposta_completa, simular_chat_lapidacao_com_busca
 
@@ -48,16 +49,6 @@ st.markdown("""
         padding: 24px;
         border-radius: 4px;
         margin-bottom: 20px;
-    }
-
-    .login-box {
-        max-width: 450px;
-        margin: 40px auto;
-        padding: 30px;
-        background: #FFFFFF;
-        border: 1px solid #E3DED4;
-        border-radius: 6px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.03);
     }
 
     .stButton>button {
@@ -110,20 +101,44 @@ def extrair_texto_curriculo(uploaded_file):
     return texto
 
 # ============================================================
-# GERENCIAMENTO DE SESSÃO & AUTENTICAÇÃO
+# CONEXÃO COM SUPABASE & BANC0 DE DADOS
+# ============================================================
+@st.cache_resource
+def init_supabase() -> Client:
+    url = st.secrets.get("SUPABASE_URL") or os.environ.get("SUPABASE_URL")
+    key = st.secrets.get("SUPABASE_KEY") or os.environ.get("SUPABASE_KEY")
+    if not url or not key:
+        st.error("Credenciais do Supabase não configuradas nos Secrets.")
+        st.stop()
+    return create_client(url, key)
+
+supabase = init_supabase()
+
+def buscar_usuario(email):
+    try:
+        res = supabase.table("usuarios").select("*").eq("email", email).execute()
+        return res.data[0] if res.data else None
+    except Exception:
+        return None
+
+def criar_usuario(nome, email, senha):
+    data = {"email": email, "nome": nome, "senha": senha}
+    return supabase.table("usuarios").insert(data).execute()
+
+def salvar_progresso_banco(email):
+    dados_atualizados = {
+        "contexto_vaga": st.session_state.get("contexto_vaga", {}),
+        "avaliacoes": st.session_state.get("avaliacoes", []),
+        "mensagens_chat": st.session_state.get("mensagens_chat", [])
+    }
+    supabase.table("usuarios").update(dados_atualizados).eq("email", email).execute()
+
+# ============================================================
+# TELA DE LOGIN / CADASTRO (AUTENTICAÇÃO)
 # ============================================================
 if "usuario_logado" not in st.session_state:
     st.session_state["usuario_logado"] = None
 
-if "usuarios_db" not in st.session_state:
-    st.session_state["usuarios_db"] = {}  # Simulando base Supabase/Firebase
-
-if "etapa1_concluida" not in st.session_state:
-    st.session_state["etapa1_concluida"] = False
-if "etapa2_concluida" not in st.session_state:
-    st.session_state["etapa2_concluida"] = False
-
-# --- TELA DE LOGIN / CADASTRO (Estilo ChatGPT / Atelier) ---
 if not st.session_state["usuario_logado"]:
     st.markdown("""
     <div style="text-align: center; padding: 2rem 0 1rem 0;">
@@ -140,29 +155,40 @@ if not st.session_state["usuario_logado"]:
             email = st.text_input("E-mail", key="login_email")
             senha = st.text_input("Senha", type="password", key="login_senha")
             if st.button("Entrar na minha conta ➔"):
-                if email in st.session_state["usuarios_db"] and st.session_state["usuarios_db"][email]["senha"] == senha:
+                user = buscar_usuario(email)
+                if user and user["senha"] == senha:
                     st.session_state["usuario_logado"] = email
-                    st.success("Bem-vindo(a) de volta!")
+                    st.session_state["usuario_nome"] = user["nome"]
+                    # Restaura histórico do banco de dados
+                    st.session_state["contexto_vaga"] = user.get("contexto_vaga") or {}
+                    st.session_state["avaliacoes"] = user.get("avaliacoes") or []
+                    st.session_state["mensagens_chat"] = user.get("mensagens_chat") or []
+                    
+                    st.session_state["etapa1_concluida"] = bool(st.session_state["contexto_vaga"].get("empresa"))
+                    st.session_state["etapa2_concluida"] = len(st.session_state["avaliacoes"]) > 0
+                    
+                    st.success(f"Bem-vindo(a) de volta, {user['nome']}!")
                     st.rerun()
                 else:
-                    st.error("Credenciais inválidas. Tente novamente ou crie uma conta.")
+                    st.error("E-mail ou senha incorretos.")
                     
         with aba_auth2:
             novo_nome = st.text_input("Nome completo", key="cad_nome")
             novo_email = st.text_input("E-mail", key="cad_email")
             nova_senha = st.text_input("Senha", type="password", key="cad_senha")
             if st.button("Cadastrar e Acessar"):
-                if novo_email in st.session_state["usuarios_db"]:
+                if buscar_usuario(novo_email):
                     st.warning("Este e-mail já está cadastrado.")
-                elif novo_email and nova_senha:
-                    st.session_state["usuarios_db"][novo_email] = {
-                        "nome": novo_nome,
-                        "senha": nova_senha,
-                        "historico": []
-                    }
+                elif novo_email and nova_senha and novo_nome:
+                    criar_usuario(novo_nome, novo_email, nova_senha)
                     st.session_state["usuario_logado"] = novo_email
+                    st.session_state["usuario_nome"] = novo_nome
+                    st.session_state["etapa1_concluida"] = False
+                    st.session_state["etapa2_concluida"] = False
                     st.success("Conta criada com sucesso!")
                     st.rerun()
+                else:
+                    st.warning("Preencha todos os campos.")
 
     st.stop()
 
@@ -178,28 +204,28 @@ with col_head1:
     </div>
     """, unsafe_allow_html=True)
 with col_head2:
-    st.markdown(f"<p style='text-align: right; padding-top: 1.5rem;'>👤 {st.session_state['usuario_logado']}</p>", unsafe_allow_html=True)
+    st.markdown(f"<p style='text-align: right; padding-top: 1.5rem;'>👤 <b>{st.session_state.get('usuario_nome', 'Candidato')}</b></p>", unsafe_allow_html=True)
     if st.button("Sair / Logout"):
-        st.session_state["usuario_logado"] = None
+        st.session_state.clear()
         st.rerun()
 
 st.markdown("<hr style='border: none; border-top: 1px solid #E3DED4; margin: 1rem 0;'>", unsafe_allow_html=True)
 
-# Chave API
+# Chave API Gemini
 api_key = st.secrets.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY")
 if not api_key:
-    st.warning("Chave GEMINI_API_KEY não configurada nos Secrets ou variáveis de ambiente.")
+    st.warning("Chave GEMINI_API_KEY não configurada nos Secrets.")
     st.stop()
 
 client = get_client(api_key)
 
 # ============================================================
-# NAVEGAÇÃO PROGRESSIVA (SEM EMOJIS, CONDICIONAL)
+# NAVEGAÇÃO PROGRESSIVA (SEM EMOJIS, DESBLOQUEIO CONDICIONAL)
 # ============================================================
 etapas_disponiveis = ["1. Contexto da Vaga"]
-if st.session_state["etapa1_concluida"]:
+if st.session_state.get("etapa1_concluida"):
     etapas_disponiveis.append("2. Painel de Simulação")
-if st.session_state["etapa2_concluida"]:
+if st.session_state.get("etapa2_concluida"):
     etapas_disponiveis.append("3. Lapidação & Feedback")
 
 etapa_selecionada = st.radio(
@@ -232,19 +258,23 @@ if etapa_selecionada == "1. Contexto da Vaga":
     sobre_empresa = st.text_area("Sobre a empresa (descrição, cultura, valores, etc)", value=ctx.get("sobre_empresa", ""), placeholder="Ex: Foco em inovação, autonomia, foco em clientes...")
 
     if st.button("Salvar Contexto e Avançar ➔"):
-        curriculo_texto = extrair_texto_curriculo(curriculo_file) if curriculo_file else ctx.get("curriculo_texto", "")
-        
-        st.session_state["contexto_vaga"] = {
-            "empresa": empresa if empresa else "Empresa Alvo",
-            "cargo": cargo if cargo else "Cargo Desejado",
-            "descricao": descricao,
-            "sobre_empresa": sobre_empresa,
-            "linkedin": linkedin,
-            "curriculo_texto": curriculo_texto
-        }
-        st.session_state["etapa1_concluida"] = True
-        st.success("Contexto salvo com sucesso! Etapa 2 liberada.")
-        st.rerun()
+        if not empresa or not cargo or not descricao:
+            st.warning("Preencha pelo menos Nome da Empresa, Cargo e Descrição da vaga.")
+        else:
+            curriculo_texto = extrair_texto_curriculo(curriculo_file) if curriculo_file else ctx.get("curriculo_texto", "")
+            
+            st.session_state["contexto_vaga"] = {
+                "empresa": empresa,
+                "cargo": cargo,
+                "descricao": descricao,
+                "sobre_empresa": sobre_empresa,
+                "linkedin": linkedin,
+                "curriculo_texto": curriculo_texto
+            }
+            st.session_state["etapa1_concluida"] = True
+            salvar_progresso_banco(st.session_state["usuario_logado"])
+            st.success("Contexto salvo no banco de dados! Etapa 2 liberada.")
+            st.rerun()
 
 # ============================================================
 # ETAPA 2 — PAINEL DE SIMULAÇÃO
@@ -258,7 +288,6 @@ elif etapa_selecionada == "2. Painel de Simulação":
     
     dados_pergunta = PERGUNTAS_CURATORIA[pergunta_selecionada]
     
-    # Exibe box discreto com expectativas técnicas
     st.markdown(f"""
     <div class="editorial-card" style="padding: 14px; margin-top: 10px;">
         <small><b>Técnica Sugerida:</b> {dados_pergunta['tecnica']}</small><br>
@@ -292,16 +321,26 @@ elif etapa_selecionada == "2. Painel de Simulação":
                     resposta_texto=resposta_texto,
                     audio_bytes=audio_bytes
                 )
+                
                 st.session_state["ultima_pergunta"] = pergunta_selecionada
                 st.session_state["ultima_avaliacao"] = resultado
+                
+                if "avaliacoes" not in st.session_state:
+                    st.session_state["avaliacoes"] = []
+                st.session_state["avaliacoes"].append({
+                    "pergunta": pergunta_selecionada,
+                    "avaliacao": resultado
+                })
+                
                 st.session_state["etapa2_concluida"] = True
+                salvar_progresso_banco(st.session_state["usuario_logado"])
                 
             st.markdown("---")
             st.markdown("### Parecer Técnico do Avaliador")
             st.markdown(resultado)
 
 # ============================================================
-# ETAPA 3 — LAPIDAÇÃO & FEEDBACK (CHAT COM SEARCH GROUNDING)
+# ETAPA 3 — LAPIDAÇÃO & FEEDBACK
 # ============================================================
 elif etapa_selecionada == "3. Lapidação & Feedback":
     st.markdown("### Atelier de Lapidação (Chat com IA)")
@@ -329,5 +368,6 @@ elif etapa_selecionada == "3. Lapidação & Feedback":
                 parecer_anterior=st.session_state.get("ultima_avaliacao", "")
             )
             st.session_state["mensagens_chat"].append({"role": "assistant", "content": resposta_ia})
+            salvar_progresso_banco(st.session_state["usuario_logado"])
             with st.chat_message("assistant"):
                 st.markdown(resposta_ia)
