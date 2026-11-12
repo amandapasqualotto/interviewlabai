@@ -1,5 +1,6 @@
 import os
 import uuid
+import base64
 from datetime import datetime
 import streamlit as st
 from supabase import create_client, Client
@@ -191,6 +192,28 @@ def agora_str():
         return datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y %H:%M")
     except Exception:
         return datetime.now().strftime("%d/%m/%Y %H:%M")
+
+
+@st.cache_data
+def logo_base64():
+    try:
+        caminho = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icone.png")
+        with open(caminho, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    except Exception:
+        return ""
+
+
+def logo_html(tamanho):
+    """Logo circular discreta; se o arquivo não existir, não mostra nada."""
+    b64 = logo_base64()
+    if not b64:
+        return ""
+    return (
+        f'<img src="data:image/png;base64,{b64}" '
+        f'style="width:{tamanho}px;height:{tamanho}px;border-radius:50%;'
+        f'box-shadow:0 2px 12px rgba(120,100,90,0.18);opacity:0.95;">'
+    )
 
 
 def parecer_com_pergunta(pergunta, texto):
@@ -471,8 +494,9 @@ if "auth_mode" not in st.session_state:
     st.session_state["auth_mode"] = "login"
 
 if not st.session_state["usuario_logado"]:
-    st.markdown("""
-    <div style="text-align: center; padding: 2.5rem 0 1.5rem 0;">
+    st.markdown(f"""
+    <div style="text-align: center; padding: 2rem 0 1.5rem 0;">
+        <div style="margin-bottom: 1.1rem;">{logo_html(88)}</div>
         <p style="letter-spacing: 3px; font-size: 0.8rem; text-transform: uppercase; color: #787267; font-weight: 600;">— Plataforma de Treinamento para Entrevista —</p>
         <h1 style="font-size: 3.2rem; font-style: italic; margin-top: 0.2rem; margin-bottom: 0;">Interview Lab AI</h1>
     </div>
@@ -581,10 +605,13 @@ if not st.session_state["usuario_logado"]:
 # ============================================================
 col_head1, col_head2 = st.columns([4, 1.4])
 with col_head1:
-    st.markdown("""
-    <div style="padding: 0.5rem 0 0.2rem 0;">
-        <h1 style="font-size: 2.3rem; margin-bottom: 0px;">Interview Lab AI</h1>
-        <p style="color: #787267; font-size: 0.95rem; margin-top: -4px;">Laboratório de Simulação e Lapidação Narrativa para Entrevistas</p>
+    st.markdown(f"""
+    <div style="display: flex; align-items: center; gap: 16px; padding: 0.5rem 0 0.2rem 0;">
+        {logo_html(60)}
+        <div>
+            <h1 style="font-size: 2.3rem; margin-bottom: 0px;">Interview Lab AI</h1>
+            <p style="color: #787267; font-size: 0.95rem; margin-top: -4px;">Laboratório de Simulação e Lapidação Narrativa para Entrevistas</p>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 with col_head2:
