@@ -939,16 +939,10 @@ elif etapa_atual == ETAPA_2:
 # ETAPA 3 — LAPIDAÇÃO & FEEDBACK
 # ============================================================
 elif etapa_atual == ETAPA_3:
-    col_nav1, col_nav2, _ = st.columns([1.5, 1.2, 3])
+    col_nav1, _ = st.columns([1.5, 4])
     with col_nav1:
         if st.button("⬅ Voltar para Simulação", key="btn_voltar_e2"):
             ir_para_etapa(ETAPA_2)
-    with col_nav2:
-        if st.button("Nova conversa", key="btn_nova_conversa"):
-            st.session_state["conversa_ativa_id"] = None
-            st.session_state["mensagens_chat"] = []
-            salvar_progresso_banco(st.session_state["usuario_logado"])
-            st.rerun()
 
     st.markdown("<h3>Etapa 3 — Atelier de Lapidação Narrativa</h3>", unsafe_allow_html=True)
     st.markdown("<p style='color: #6B655C; font-size: 0.92rem; margin-bottom: 1.5rem;'>Converse com o mentor de inteligência para ajustar métricas, storytelling e pesquisar tendências da empresa no mercado em tempo real.</p>", unsafe_allow_html=True)
