@@ -26,7 +26,7 @@ ETAPA_3 = "3. Lapidação & Feedback"
 # ============================================================
 st.set_page_config(
     page_title="Interview Lab AI",
-    page_icon="🎯",
+    page_icon="icone.png",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
