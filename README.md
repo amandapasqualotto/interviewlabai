@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://capsule-render.vercel.app/api?type=waving&color=0:FF8FC7,100:C2185B&height=220&section=header&text=Interview%20Lab%20AI&fontSize=48&fontColor=ffffff&animation=fadeIn&fontAlignY=38&desc=Simula%C3%A7%C3%A3o%20e%20Lapida%C3%A7%C3%A3o%20Narrativa%20para%20Entrevistas&descAlignY=58&descSize=18" width="100%" alt="banner"/>
+<img src="https://capsule-render.vercel.app/api?type=waving&color=0:FF8FC7,100:C2185B&height=220&section=header&text=Interview%20Lab%20AI&fontSize=48&fontColor=ffffff&animation=fadeIn&fontAlignY=38&desc=Simula%C3%A7%C3%A3o%20e%20Lapida%C3%A7%C3%A3o%20de%20Narrativa%20para%20Entrevistas&descAlignY=58&descSize=18" width="100%" alt="banner"/>
 
 <a href="https://git.io/typing-svg">
   <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=600&size=20&duration=3500&pause=900&color=FF4D94&center=true&vCenter=true&width=800&lines=Treine+suas+respostas+de+entrevista+com+IA;Interview+practice+powered+by+Generative+AI;M%C3%A9todo+STAR+%7C+Feedback+personalizado+por+vaga;Python+%C2%B7+Streamlit+%C2%B7+Gemini+%C2%B7+Supabase" alt="Typing SVG" />
