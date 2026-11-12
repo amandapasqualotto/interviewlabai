@@ -193,6 +193,14 @@ def agora_str():
         return datetime.now().strftime("%d/%m/%Y %H:%M")
 
 
+def parecer_com_pergunta(pergunta, texto):
+    """Garante que o parecer exibido comece com a pergunta (inclusive pareceres antigos)."""
+    texto = texto or ""
+    if texto.lstrip().startswith("**Pergunta:**") or not pergunta:
+        return texto
+    return f"**Pergunta:** {pergunta}\n\n---\n\n{texto}"
+
+
 # ============================================================
 # CONEXÃO COM SUPABASE & BANCO DE DADOS
 # ============================================================
@@ -438,7 +446,7 @@ def dialog_historico():
                     st.markdown("**Sua resposta**")
                     st.write(a["resposta"])
                 st.markdown("**Parecer**")
-                st.markdown(a.get("avaliacao", ""))
+                st.markdown(parecer_com_pergunta(a.get("pergunta"), a.get("avaliacao", "")))
 
     with tab3:
         if not convs:
@@ -759,7 +767,7 @@ elif etapa_atual == ETAPA_2:
     if st.session_state.get("ultima_avaliacao"):
         with st.container(border=True):
             st.markdown("### Último Parecer Técnico Gerado")
-            st.markdown(st.session_state["ultima_avaliacao"])
+            st.markdown(parecer_com_pergunta(st.session_state.get("ultima_pergunta"), st.session_state["ultima_avaliacao"]))
 
         if st.button("Avançar para Etapa 3 ➔", key="btn_avancar_e3"):
             ir_para_etapa(ETAPA_3)
