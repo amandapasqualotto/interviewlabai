@@ -127,15 +127,6 @@ So I curated those questions and built a tool that lets anyone **practice with t
 </tr>
 </table>
 
-| Library | Use |
-|---|---|
-| `streamlit` | Web interface, session state and dialogs |
-| `google-genai` | Gemini API: answer evaluation (text and audio) and streaming chat |
-| `supabase` | User accounts and storage of history |
-| `pypdf` | Résumé reading (PDF) |
-| `python-docx` | Résumé reading (DOCX) |
-
-<br/>
 
 ## 🗂️ Project structure
 
