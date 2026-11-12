@@ -1,4 +1,6 @@
 import os
+import uuid
+from datetime import datetime
 import streamlit as st
 from supabase import create_client, Client
 from curadoria import PERGUNTAS_CURATORIA
@@ -14,6 +16,10 @@ try:
     from docx import Document
 except ImportError:
     Document = None
+
+ETAPA_1 = "1. Contexto da Vaga"
+ETAPA_2 = "2. Painel de Simulação"
+ETAPA_3 = "3. Lapidação & Feedback"
 
 # ============================================================
 # CONFIGURAÇÃO DE PÁGINA E DESIGN EDITORIAL CLEAN
@@ -41,7 +47,7 @@ st.markdown("""
         letter-spacing: -0.02em;
     }
 
-    /* Containers com borda (substituem os antigos cartões que geravam o bloco branco vazio) */
+    /* Containers com borda */
     div[data-testid="stVerticalBlockBorderWrapper"] {
         background-color: #FFFFFF;
         border-color: #E6E1D7 !important;
@@ -68,11 +74,12 @@ st.markdown("""
         color: #FFFFFF;
     }
 
-    /* Faz o contêiner dos botões ocupar a largura toda da coluna (assim o alinhamento funciona) */
+    /* Contêiner dos botões ocupa a coluna toda (para o alinhamento funcionar) */
     .st-key-btn_toggle_cad,
     .st-key-btn_voltar_login1,
     .st-key-btn_voltar_login2,
-    .st-key-btn_logout {
+    .st-key-btn_logout,
+    .st-key-btn_historico {
         width: 100% !important;
         max-width: 100% !important;
     }
@@ -83,13 +90,14 @@ st.markdown("""
         justify-content: center !important;
         width: 100% !important;
     }
-    .st-key-btn_logout div[data-testid="stButton"] {
+    .st-key-btn_logout div[data-testid="stButton"],
+    .st-key-btn_historico div[data-testid="stButton"] {
         display: flex !important;
         justify-content: flex-end !important;
         width: 100% !important;
     }
 
-    /* Botões secundários (Criar nova conta / Voltar ao Login) */
+    /* Botões secundários (cinza) */
     .st-key-btn_toggle_cad button,
     .st-key-btn_voltar_login1 button,
     .st-key-btn_voltar_login2 button {
@@ -99,16 +107,23 @@ st.markdown("""
         width: 260px !important;
         max-width: 100% !important;
     }
+    .st-key-btn_historico button {
+        background-color: #E6E1D7 !important;
+        color: #111E16 !important;
+        border: 1px solid #DCD6CD !important;
+    }
     .st-key-btn_toggle_cad button:hover,
     .st-key-btn_voltar_login1 button:hover,
-    .st-key-btn_voltar_login2 button:hover {
+    .st-key-btn_voltar_login2 button:hover,
+    .st-key-btn_historico button:hover {
         background-color: #DCD6CD !important;
         color: #111E16 !important;
         border-color: #C8C2B7 !important;
     }
 
-    /* Botão Sair da Sessão: abaixo do nome, alinhado à direita */
-    .st-key-btn_logout button {
+    /* Sair da Sessão e Histórico: abaixo do nome, à direita, largura do texto */
+    .st-key-btn_logout button,
+    .st-key-btn_historico button {
         width: auto !important;
         padding: 0.45rem 1.1rem;
     }
@@ -142,7 +157,9 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# Helper para ler arquivo de currículo
+# ============================================================
+# UTILITÁRIOS
+# ============================================================
 def extrair_texto_curriculo(uploaded_file):
     if not uploaded_file:
         return ""
@@ -162,6 +179,18 @@ def extrair_texto_curriculo(uploaded_file):
     except Exception as e:
         st.error(f"Erro ao ler arquivo do currículo: {e}")
     return texto
+
+
+def novo_id():
+    return uuid.uuid4().hex[:10]
+
+
+def agora_str():
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y %H:%M")
+    except Exception:
+        return datetime.now().strftime("%d/%m/%Y %H:%M")
 
 
 # ============================================================
@@ -197,19 +226,231 @@ def atualizar_senha_usuario(email, nova_senha):
     return supabase.table("usuarios").update({"senha": nova_senha}).eq("email", email).execute()
 
 
+# ============================================================
+# HISTÓRICO (Etapa 1 > Etapa 2 / Etapa 3)
+# Estrutura de cada item de st.session_state["historico"]:
+# {
+#   "id", "data",
+#   "contexto":   {empresa, cargo, descricao, ...}          -> histórico da Etapa 1
+#   "avaliacoes": [{id, data, pergunta, resposta, avaliacao}] -> histórico da Etapa 2
+#   "conversas":  [{id, avaliacao_id, pergunta, data, mensagens}] -> histórico da Etapa 3
+# }
+# Tudo é salvo dentro da coluna já existente "contexto_vaga" (chave "_historico"),
+# então não é preciso alterar o Supabase.
+# ============================================================
+def vaga_ativa():
+    ss = st.session_state
+    for v in ss.get("historico", []):
+        if v["id"] == ss.get("vaga_ativa_id"):
+            return v
+    return None
+
+
+def limpar_vaga_ativa():
+    ss = st.session_state
+    ss["vaga_ativa_id"] = None
+    ss["contexto_vaga"] = {}
+    ss["etapa1_concluida"] = False
+    ss["etapa2_concluida"] = False
+    ss["ultima_pergunta"] = ""
+    ss["ultima_avaliacao"] = ""
+    ss["ultima_avaliacao_id"] = None
+    ss["conversa_ativa_id"] = None
+    ss["mensagens_chat"] = []
+
+
+def definir_vaga_ativa(vaga_id):
+    ss = st.session_state
+    vaga = next((v for v in ss.get("historico", []) if v["id"] == vaga_id), None)
+    if vaga is None:
+        limpar_vaga_ativa()
+        return
+    ss["vaga_ativa_id"] = vaga["id"]
+    ss["contexto_vaga"] = dict(vaga["contexto"])
+    ss["etapa1_concluida"] = True
+    ss["etapa2_concluida"] = bool(vaga["avaliacoes"])
+    ultima = vaga["avaliacoes"][-1] if vaga["avaliacoes"] else None
+    ss["ultima_pergunta"] = ultima["pergunta"] if ultima else ""
+    ss["ultima_avaliacao"] = ultima["avaliacao"] if ultima else ""
+    ss["ultima_avaliacao_id"] = ultima["id"] if ultima else None
+    conv = vaga["conversas"][-1] if vaga["conversas"] else None
+    ss["conversa_ativa_id"] = conv["id"] if conv else None
+    ss["mensagens_chat"] = list(conv["mensagens"]) if conv else []
+
+
+def carregar_sessao(user, email):
+    """Carrega os dados do usuário (migrando dados antigos para o novo formato)."""
+    ss = st.session_state
+    ctx = dict(user.get("contexto_vaga") or {})
+    historico = ctx.pop("_historico", None)
+    ativa = ctx.pop("_vaga_ativa", None)
+
+    if historico is None:
+        historico = []
+        avs_db = user.get("avaliacoes") or []
+        msgs_db = user.get("mensagens_chat") or []
+        if ctx.get("empresa"):
+            vaga = {"id": novo_id(), "data": "Anterior", "contexto": ctx, "avaliacoes": [], "conversas": []}
+            for a in avs_db:
+                vaga["avaliacoes"].append({
+                    "id": novo_id(), "data": "Anterior",
+                    "pergunta": a.get("pergunta", ""), "resposta": "",
+                    "avaliacao": a.get("avaliacao", "")
+                })
+            if msgs_db:
+                ult = vaga["avaliacoes"][-1] if vaga["avaliacoes"] else None
+                vaga["conversas"].append({
+                    "id": novo_id(),
+                    "avaliacao_id": ult["id"] if ult else None,
+                    "pergunta": ult["pergunta"] if ult else "Conversa anterior",
+                    "data": "Anterior", "mensagens": msgs_db
+                })
+            historico.append(vaga)
+            ativa = vaga["id"]
+
+    ss["usuario_logado"] = email
+    ss["usuario_nome"] = user["nome"]
+    ss["historico"] = historico
+    ids = [v["id"] for v in historico]
+    if ativa not in ids:
+        ativa = ids[-1] if ids else None
+    if ativa:
+        definir_vaga_ativa(ativa)
+    else:
+        limpar_vaga_ativa()
+    ss["etapa_radio_main"] = ETAPA_1
+
+
 def salvar_progresso_banco(email):
-    dados_atualizados = {
-        "contexto_vaga": st.session_state.get("contexto_vaga", {}),
-        "avaliacoes": st.session_state.get("avaliacoes", []),
-        "mensagens_chat": st.session_state.get("mensagens_chat", [])
+    ss = st.session_state
+    ctx = dict(ss.get("contexto_vaga", {}))
+    ctx["_historico"] = ss.get("historico", [])
+    ctx["_vaga_ativa"] = ss.get("vaga_ativa_id")
+    vaga = vaga_ativa()
+    dados = {
+        "contexto_vaga": ctx,
+        "avaliacoes": vaga["avaliacoes"] if vaga else [],
+        "mensagens_chat": ss.get("mensagens_chat", [])
     }
-    supabase.table("usuarios").update(dados_atualizados).eq("email", email).execute()
+    try:
+        supabase.table("usuarios").update(dados).eq("email", email).execute()
+    except Exception as e:
+        st.warning(f"Não foi possível salvar seu progresso agora: {e}")
+
+
+def sincronizar_conversa():
+    """Grava as mensagens do chat atual na conversa (Etapa 3) da vaga ativa."""
+    ss = st.session_state
+    vaga = vaga_ativa()
+    if vaga is None:
+        return
+    conv = next((c for c in vaga["conversas"] if c["id"] == ss.get("conversa_ativa_id")), None)
+    if conv is None:
+        conv = {
+            "id": novo_id(),
+            "avaliacao_id": ss.get("ultima_avaliacao_id"),
+            "pergunta": ss.get("ultima_pergunta") or "Conversa",
+            "data": agora_str(),
+            "mensagens": []
+        }
+        vaga["conversas"].append(conv)
+        ss["conversa_ativa_id"] = conv["id"]
+    conv["mensagens"] = list(ss.get("mensagens_chat", []))
 
 
 def ir_para_etapa(nome_etapa):
     """Agenda a troca de etapa; é aplicada no próximo rerun, antes do radio ser criado."""
     st.session_state["_ir_para_etapa"] = nome_etapa
     st.rerun()
+
+
+def retomar_conversa(vaga_id, conv_id):
+    ss = st.session_state
+    definir_vaga_ativa(vaga_id)
+    vaga = vaga_ativa()
+    conv = next((c for c in vaga["conversas"] if c["id"] == conv_id), None)
+    if conv:
+        ss["conversa_ativa_id"] = conv["id"]
+        ss["mensagens_chat"] = list(conv["mensagens"])
+        aval = next((a for a in vaga["avaliacoes"] if a["id"] == conv.get("avaliacao_id")), None)
+        if aval:
+            ss["ultima_pergunta"] = aval["pergunta"]
+            ss["ultima_avaliacao"] = aval["avaliacao"]
+            ss["ultima_avaliacao_id"] = aval["id"]
+    salvar_progresso_banco(ss["usuario_logado"])
+    ir_para_etapa(ETAPA_3)
+
+
+@st.dialog("Histórico", width="large")
+def dialog_historico():
+    historico = st.session_state.get("historico", [])
+    if not historico:
+        st.info("Seu histórico aparecerá aqui assim que você salvar a primeira vaga na Etapa 1.")
+        return
+
+    mapa = {v["id"]: v for v in historico}
+    ids = [v["id"] for v in reversed(historico)]
+    ativa = st.session_state.get("vaga_ativa_id")
+
+    def rotulo(i):
+        c = mapa[i]["contexto"]
+        txt = f"{c.get('empresa', '?')} — {c.get('cargo', '?')} · {mapa[i].get('data', '')}"
+        return txt + ("  (ativa)" if i == ativa else "")
+
+    idx = ids.index(ativa) if ativa in ids else 0
+    escolhido = st.selectbox("Vaga (histórico da Etapa 1)", ids, index=idx, format_func=rotulo, key="hist_vaga_sel")
+    vaga = mapa[escolhido]
+
+    avs = vaga["avaliacoes"]
+    convs = [c for c in vaga["conversas"] if c.get("mensagens")]
+
+    tab1, tab2, tab3 = st.tabs([
+        "Etapa 1 — Contexto",
+        f"Etapa 2 — Pareceres ({len(avs)})",
+        f"Etapa 3 — Conversas ({len(convs)})",
+    ])
+
+    with tab1:
+        c = vaga["contexto"]
+        st.markdown(f"**Empresa:** {c.get('empresa', '')}")
+        st.markdown(f"**Cargo:** {c.get('cargo', '')}")
+        if c.get("linkedin"):
+            st.markdown(f"**LinkedIn:** {c['linkedin']}")
+        st.markdown("**Descrição & requisitos da vaga**")
+        st.write(c.get("descricao", ""))
+        if c.get("sobre_empresa"):
+            st.markdown("**Sobre a empresa & cultura**")
+            st.write(c["sobre_empresa"])
+        if escolhido != ativa:
+            if st.button("Usar esta vaga e ir para a Etapa 2", key=f"usar_{escolhido}"):
+                definir_vaga_ativa(escolhido)
+                salvar_progresso_banco(st.session_state["usuario_logado"])
+                ir_para_etapa(ETAPA_2)
+        else:
+            st.caption("Esta é a vaga ativa no momento.")
+
+    with tab2:
+        if not avs:
+            st.caption("Nenhum parecer gerado para esta vaga ainda.")
+        for a in reversed(avs):
+            with st.expander(f"{a.get('data', '')} · {a.get('pergunta', '')[:80]}"):
+                if a.get("resposta"):
+                    st.markdown("**Sua resposta**")
+                    st.write(a["resposta"])
+                st.markdown("**Parecer**")
+                st.markdown(a.get("avaliacao", ""))
+
+    with tab3:
+        if not convs:
+            st.caption("Nenhuma conversa com o mentor para esta vaga ainda.")
+        for cv in reversed(convs):
+            n = len(cv["mensagens"])
+            with st.expander(f"{cv.get('data', '')} · {cv.get('pergunta', '')[:80]} ({n} msgs)"):
+                for m in cv["mensagens"]:
+                    with st.chat_message(m["role"]):
+                        st.markdown(m["content"])
+                if st.button("Retomar esta conversa", key=f"ret_{cv['id']}"):
+                    retomar_conversa(escolhido, cv["id"])
 
 
 # ============================================================
@@ -241,15 +482,7 @@ if not st.session_state["usuario_logado"]:
             if st.button("Entrar na Conta ➔", key="btn_login"):
                 user = buscar_usuario(email)
                 if user and user["senha"] == senha:
-                    st.session_state["usuario_logado"] = email
-                    st.session_state["usuario_nome"] = user["nome"]
-                    st.session_state["contexto_vaga"] = user.get("contexto_vaga") or {}
-                    st.session_state["avaliacoes"] = user.get("avaliacoes") or []
-                    st.session_state["mensagens_chat"] = user.get("mensagens_chat") or []
-
-                    st.session_state["etapa1_concluida"] = bool(st.session_state["contexto_vaga"].get("empresa"))
-                    st.session_state["etapa2_concluida"] = len(st.session_state["avaliacoes"]) > 0
-                    st.session_state["etapa_radio_main"] = "1. Contexto da Vaga"
+                    carregar_sessao(user, email)
                     st.rerun()
                 else:
                     st.error("E-mail ou senha incorretos.")
@@ -272,7 +505,6 @@ if not st.session_state["usuario_logado"]:
             </div>
             """, unsafe_allow_html=True)
 
-            # Botão centralizado logo abaixo do texto
             if st.button("Criar nova conta", key="btn_toggle_cad"):
                 st.session_state["auth_mode"] = "cadastro"
                 st.rerun()
@@ -292,12 +524,9 @@ if not st.session_state["usuario_logado"]:
                     criar_usuario(novo_nome, novo_email, nova_senha)
                     st.session_state["usuario_logado"] = novo_email
                     st.session_state["usuario_nome"] = novo_nome
-                    st.session_state["contexto_vaga"] = {}
-                    st.session_state["avaliacoes"] = []
-                    st.session_state["mensagens_chat"] = []
-                    st.session_state["etapa1_concluida"] = False
-                    st.session_state["etapa2_concluida"] = False
-                    st.session_state["etapa_radio_main"] = "1. Contexto da Vaga"
+                    st.session_state["historico"] = []
+                    limpar_vaga_ativa()
+                    st.session_state["etapa_radio_main"] = ETAPA_1
                     st.rerun()
                 else:
                     st.warning("Preencha todos os campos obrigatórios.")
@@ -360,6 +589,8 @@ with col_head2:
     if st.button("Sair da Sessão", key="btn_logout"):
         st.session_state.clear()
         st.rerun()
+    if st.button("Histórico", key="btn_historico"):
+        dialog_historico()
 
 st.markdown("<hr style='border: none; border-top: 1px solid #E6E1D7; margin: 0.8rem 0 1.5rem 0;'>", unsafe_allow_html=True)
 
@@ -374,17 +605,12 @@ client = get_client(api_key)
 # ============================================================
 # GERENCIAMENTO DAS ETAPAS (navegação automática)
 # ============================================================
-ETAPA_1 = "1. Contexto da Vaga"
-ETAPA_2 = "2. Painel de Simulação"
-ETAPA_3 = "3. Lapidação & Feedback"
-
 etapas_lista = [ETAPA_1]
 if st.session_state.get("etapa1_concluida"):
     etapas_lista.append(ETAPA_2)
 if st.session_state.get("etapa2_concluida"):
     etapas_lista.append(ETAPA_3)
 
-# Aplica navegação pedida pelos botões ANTES de criar o radio
 destino = st.session_state.pop("_ir_para_etapa", None)
 if destino in etapas_lista:
     st.session_state["etapa_radio_main"] = destino
@@ -424,8 +650,7 @@ if etapa_atual == ETAPA_1:
             st.warning("Preencha pelo menos a Empresa, Cargo e Descrição da Vaga.")
         else:
             curriculo_texto = extrair_texto_curriculo(curriculo_file) if curriculo_file else ctx.get("curriculo_texto", "")
-
-            st.session_state["contexto_vaga"] = {
+            novo_ctx = {
                 "empresa": empresa,
                 "cargo": cargo,
                 "descricao": descricao,
@@ -433,7 +658,23 @@ if etapa_atual == ETAPA_1:
                 "linkedin": linkedin,
                 "curriculo_texto": curriculo_texto
             }
-            st.session_state["etapa1_concluida"] = True
+
+            vaga = vaga_ativa()
+            mesma_vaga = (
+                vaga is not None
+                and vaga["contexto"].get("empresa", "").strip().lower() == empresa.strip().lower()
+                and vaga["contexto"].get("cargo", "").strip().lower() == cargo.strip().lower()
+            )
+            if mesma_vaga:
+                # Mesma empresa e cargo: só atualiza os dados (mantém pareceres e conversas)
+                vaga["contexto"] = novo_ctx
+                st.session_state["contexto_vaga"] = novo_ctx
+            else:
+                # Vaga nova: cria um novo registro no histórico
+                nova = {"id": novo_id(), "data": agora_str(), "contexto": novo_ctx, "avaliacoes": [], "conversas": []}
+                st.session_state.setdefault("historico", []).append(nova)
+                definir_vaga_ativa(nova["id"])
+
             salvar_progresso_banco(st.session_state["usuario_logado"])
             ir_para_etapa(ETAPA_2)
 
@@ -473,7 +714,7 @@ elif etapa_atual == ETAPA_2:
         if audio_input:
             audio_bytes = audio_input.read()
 
-    if st.button("Enviar, Avaliar e Avançar para Etapa 3 ➔", key="btn_avaliar_e2"):
+    if st.button("Enviar e Avaliar ➔", key="btn_avaliar_e2"):
         if not resposta_texto and not audio_bytes:
             st.warning("Por favor, forneça uma resposta em texto ou grave um áudio.")
         else:
@@ -487,36 +728,62 @@ elif etapa_atual == ETAPA_2:
                     audio_bytes=audio_bytes
                 )
 
-            st.session_state["ultima_pergunta"] = pergunta_selecionada
-            st.session_state["ultima_avaliacao"] = resultado
+            if resultado.startswith("Não foi possível obter resposta"):
+                # Falhas não entram no histórico
+                st.error(resultado)
+            else:
+                # A pergunta vai dentro do parecer (de propósito), para copiar/imprimir completo
+                resultado = f"**Pergunta:** {pergunta_selecionada}\n\n---\n\n{resultado}"
 
-            if "avaliacoes" not in st.session_state:
-                st.session_state["avaliacoes"] = []
-            st.session_state["avaliacoes"].append({
-                "pergunta": pergunta_selecionada,
-                "avaliacao": resultado
-            })
+                vaga = vaga_ativa()
+                aval = {
+                    "id": novo_id(),
+                    "data": agora_str(),
+                    "pergunta": pergunta_selecionada,
+                    "resposta": (resposta_texto or "").strip() or "[Resposta enviada em áudio]",
+                    "avaliacao": resultado
+                }
+                if vaga is not None:
+                    vaga["avaliacoes"].append(aval)
 
-            st.session_state["etapa2_concluida"] = True
-            salvar_progresso_banco(st.session_state["usuario_logado"])
-            ir_para_etapa(ETAPA_3)
+                st.session_state["ultima_pergunta"] = pergunta_selecionada
+                st.session_state["ultima_avaliacao"] = resultado
+                st.session_state["ultima_avaliacao_id"] = aval["id"]
+                # Um novo parecer abre uma conversa nova na Etapa 3 (a anterior fica no histórico)
+                st.session_state["conversa_ativa_id"] = None
+                st.session_state["mensagens_chat"] = []
+                st.session_state["etapa2_concluida"] = True
+                salvar_progresso_banco(st.session_state["usuario_logado"])
+                st.rerun()
 
     if st.session_state.get("ultima_avaliacao"):
         with st.container(border=True):
             st.markdown("### Último Parecer Técnico Gerado")
             st.markdown(st.session_state["ultima_avaliacao"])
 
+        if st.button("Avançar para Etapa 3 ➔", key="btn_avancar_e3"):
+            ir_para_etapa(ETAPA_3)
+
 # ============================================================
 # ETAPA 3 — LAPIDAÇÃO & FEEDBACK
 # ============================================================
 elif etapa_atual == ETAPA_3:
-    col_nav1, _ = st.columns([1.5, 4])
+    col_nav1, col_nav2, _ = st.columns([1.5, 1.2, 3])
     with col_nav1:
         if st.button("⬅ Voltar para Simulação", key="btn_voltar_e2"):
             ir_para_etapa(ETAPA_2)
+    with col_nav2:
+        if st.button("Nova conversa", key="btn_nova_conversa"):
+            st.session_state["conversa_ativa_id"] = None
+            st.session_state["mensagens_chat"] = []
+            salvar_progresso_banco(st.session_state["usuario_logado"])
+            st.rerun()
 
     st.markdown("<h3>Etapa 3 — Atelier de Lapidação Narrativa</h3>", unsafe_allow_html=True)
     st.markdown("<p style='color: #6B655C; font-size: 0.92rem; margin-bottom: 1.5rem;'>Converse com o mentor de inteligência para ajustar métricas, storytelling e pesquisar tendências da empresa no mercado em tempo real.</p>", unsafe_allow_html=True)
+
+    if st.session_state.get("ultima_pergunta"):
+        st.caption(f"Conversando sobre: {st.session_state['ultima_pergunta']}")
 
     if "mensagens_chat" not in st.session_state:
         st.session_state["mensagens_chat"] = []
@@ -542,5 +809,10 @@ elif etapa_atual == ETAPA_3:
                 )
             )
 
-        st.session_state["mensagens_chat"].append({"role": "assistant", "content": resposta_ia})
-        salvar_progresso_banco(st.session_state["usuario_logado"])
+        if str(resposta_ia).startswith("Não foi possível gerar a resposta do chat"):
+            # Falha: não salva, para você poder tentar de novo
+            st.session_state["mensagens_chat"].pop()
+        else:
+            st.session_state["mensagens_chat"].append({"role": "assistant", "content": resposta_ia})
+            sincronizar_conversa()
+            salvar_progresso_banco(st.session_state["usuario_logado"])
