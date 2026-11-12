@@ -152,6 +152,52 @@ st.markdown("""
         box-shadow: 0 0 0 1px #111E16;
     }
 
+    /* Botões de exclusão (discretos, em tom rosado/vermelho suave) */
+    div[class*="st-key-exc_"] button {
+        background-color: #F6E7E5 !important;
+        color: #8A2E2A !important;
+        border: 1px solid #E8C9C5 !important;
+    }
+    div[class*="st-key-exc_"] button:hover {
+        background-color: #F0D5D1 !important;
+        border-color: #DDB3AE !important;
+    }
+    div[class*="st-key-sim_"] button {
+        background-color: #8A2E2A !important;
+        color: #FFFFFF !important;
+        border: 1px solid #8A2E2A !important;
+    }
+    div[class*="st-key-sim_"] button:hover {
+        background-color: #702420 !important;
+    }
+    div[class*="st-key-nao_"] button {
+        background-color: #E6E1D7 !important;
+        color: #111E16 !important;
+        border: 1px solid #DCD6CD !important;
+    }
+
+    .ident-conectado { text-align: right; padding-top: 0.8rem; margin-bottom: 0.4rem; }
+
+    /* ===== Versão para celular / tablet ===== */
+    @media (max-width: 768px) {
+        /* 16px nos campos evita o zoom automático do iPhone ao digitar */
+        .stTextInput input, .stTextArea textarea { font-size: 16px !important; }
+    }
+    @media (max-width: 640px) {
+        .block-container { padding: 2.5rem 1rem 5rem 1rem !important; }
+        h3 { font-size: 1.3rem !important; }
+        .titulo-login { font-size: 2.2rem !important; }
+        .kicker-login { letter-spacing: 1.5px !important; font-size: 0.68rem !important; }
+        .titulo-app { font-size: 1.7rem !important; }
+        .subtitulo-app { font-size: 0.8rem !important; }
+        .ident-conectado { text-align: left !important; padding-top: 0.4rem !important; }
+        .st-key-btn_logout div[data-testid="stButton"],
+        .st-key-btn_historico div[data-testid="stButton"] { justify-content: flex-start !important; }
+        /* alvos de toque maiores */
+        .stButton>button { min-height: 46px; }
+        div[data-testid="stRadio"] label p { font-size: 0.88rem !important; }
+    }
+
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
 </style>
@@ -412,6 +458,80 @@ def retomar_conversa(vaga_id, conv_id):
     ir_para_etapa(ETAPA_3)
 
 
+def excluir_vaga(vaga_id):
+    ss = st.session_state
+    ss["historico"] = [v for v in ss.get("historico", []) if v["id"] != vaga_id]
+    era_ativa = ss.get("vaga_ativa_id") == vaga_id
+    if era_ativa:
+        restante = ss["historico"]
+        if restante:
+            definir_vaga_ativa(restante[-1]["id"])
+        else:
+            limpar_vaga_ativa()
+    ss.pop("hist_vaga_sel", None)
+    salvar_progresso_banco(ss["usuario_logado"])
+    return era_ativa
+
+
+def excluir_avaliacao(vaga_id, aval_id):
+    ss = st.session_state
+    vaga = next((v for v in ss.get("historico", []) if v["id"] == vaga_id), None)
+    if vaga is None:
+        return False
+    vaga["avaliacoes"] = [a for a in vaga["avaliacoes"] if a["id"] != aval_id]
+    afeta = False
+    if ss.get("vaga_ativa_id") == vaga_id:
+        ss["etapa2_concluida"] = bool(vaga["avaliacoes"])
+        if ss.get("ultima_avaliacao_id") == aval_id:
+            ult = vaga["avaliacoes"][-1] if vaga["avaliacoes"] else None
+            ss["ultima_pergunta"] = ult["pergunta"] if ult else ""
+            ss["ultima_avaliacao"] = ult["avaliacao"] if ult else ""
+            ss["ultima_avaliacao_id"] = ult["id"] if ult else None
+            ss["conversa_ativa_id"] = None
+            ss["mensagens_chat"] = []
+            afeta = True
+    salvar_progresso_banco(ss["usuario_logado"])
+    return afeta
+
+
+def excluir_conversa(vaga_id, conv_id):
+    ss = st.session_state
+    vaga = next((v for v in ss.get("historico", []) if v["id"] == vaga_id), None)
+    if vaga is None:
+        return False
+    vaga["conversas"] = [c for c in vaga["conversas"] if c["id"] != conv_id]
+    afeta = ss.get("vaga_ativa_id") == vaga_id and ss.get("conversa_ativa_id") == conv_id
+    if afeta:
+        ss["conversa_ativa_id"] = None
+        ss["mensagens_chat"] = []
+    salvar_progresso_banco(ss["usuario_logado"])
+    return afeta
+
+
+def botao_excluir(chave, aviso, acao):
+    """Exclusão em dois passos (Excluir -> Sim, excluir / Cancelar). Use só dentro do diálogo."""
+    ss = st.session_state
+    if ss.get("_exc_pendente") == chave:
+        st.warning(aviso)
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("Sim, excluir", key=f"sim_{chave}"):
+                afeta = acao()
+                ss["_exc_pendente"] = None
+                if afeta:
+                    st.rerun()  # muda algo na tela principal: fecha o histórico e atualiza
+                else:
+                    st.rerun(scope="fragment")  # mantém o histórico aberto
+        with c2:
+            if st.button("Cancelar", key=f"nao_{chave}"):
+                ss["_exc_pendente"] = None
+                st.rerun(scope="fragment")
+    else:
+        if st.button("Excluir", key=f"exc_{chave}"):
+            ss["_exc_pendente"] = chave
+            st.rerun(scope="fragment")
+
+
 @st.dialog("Histórico", width="large")
 def dialog_historico():
     historico = st.session_state.get("historico", [])
@@ -459,6 +579,11 @@ def dialog_historico():
                 ir_para_etapa(ETAPA_2)
         else:
             st.caption("Esta é a vaga ativa no momento.")
+        botao_excluir(
+            f"vaga_{escolhido}",
+            "Excluir esta vaga apaga também todos os pareceres e conversas dela. Essa ação não pode ser desfeita.",
+            lambda: excluir_vaga(escolhido),
+        )
 
     with tab2:
         if not avs:
@@ -470,6 +595,11 @@ def dialog_historico():
                     st.write(a["resposta"])
                 st.markdown("**Parecer**")
                 st.markdown(parecer_com_pergunta(a.get("pergunta"), a.get("avaliacao", "")))
+                botao_excluir(
+                    f"aval_{a['id']}",
+                    "Excluir este parecer? Essa ação não pode ser desfeita.",
+                    lambda aid=a["id"]: excluir_avaliacao(escolhido, aid),
+                )
 
     with tab3:
         if not convs:
@@ -482,6 +612,11 @@ def dialog_historico():
                         st.markdown(m["content"])
                 if st.button("Retomar esta conversa", key=f"ret_{cv['id']}"):
                     retomar_conversa(escolhido, cv["id"])
+                botao_excluir(
+                    f"conv_{cv['id']}",
+                    "Excluir esta conversa? Essa ação não pode ser desfeita.",
+                    lambda cid=cv["id"]: excluir_conversa(escolhido, cid),
+                )
 
 
 # ============================================================
@@ -497,8 +632,8 @@ if not st.session_state["usuario_logado"]:
     st.markdown(f"""
     <div style="text-align: center; padding: 2rem 0 1.5rem 0;">
         <div style="margin-bottom: 1.1rem;">{logo_html(88)}</div>
-        <p style="letter-spacing: 3px; font-size: 0.8rem; text-transform: uppercase; color: #787267; font-weight: 600;">— Plataforma de Treinamento para Entrevista —</p>
-        <h1 style="font-size: 3.2rem; font-style: italic; margin-top: 0.2rem; margin-bottom: 0;">Interview Lab AI</h1>
+        <p class="kicker-login" style="letter-spacing: 3px; font-size: 0.8rem; text-transform: uppercase; color: #787267; font-weight: 600;">— Plataforma de Treinamento para Entrevista —</p>
+        <h1 class="titulo-login" style="font-size: 3.2rem; font-style: italic; margin-top: 0.2rem; margin-bottom: 0;">Interview Lab AI</h1>
     </div>
     """, unsafe_allow_html=True)
 
@@ -606,17 +741,17 @@ if not st.session_state["usuario_logado"]:
 col_head1, col_head2 = st.columns([4, 1.4])
 with col_head1:
     st.markdown(f"""
-    <div style="display: flex; align-items: center; gap: 16px; padding: 0.5rem 0 0.2rem 0;">
+    <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 16px; padding: 0.5rem 0 0.2rem 0;">
         {logo_html(60)}
         <div>
-            <h1 style="font-size: 2.3rem; margin-bottom: 0px;">Interview Lab AI</h1>
-            <p style="color: #787267; font-size: 0.95rem; margin-top: -4px;">Laboratório de Simulação e Lapidação Narrativa para Entrevistas</p>
+            <h1 class="titulo-app" style="font-size: 2.3rem; margin-bottom: 0px;">Interview Lab AI</h1>
+            <p class="subtitulo-app" style="color: #787267; font-size: 0.95rem; margin-top: -4px;">Laboratório de Simulação e Lapidação Narrativa para Entrevistas</p>
         </div>
     </div>
     """, unsafe_allow_html=True)
 with col_head2:
     st.markdown(
-        f"<div style='text-align: right; padding-top: 0.8rem; margin-bottom: 0.4rem;'>"
+        f"<div class='ident-conectado'>"
         f"<span style='font-size: 0.85rem; color: #787267;'>Candidato Conectado</span><br>"
         f"<b>{st.session_state.get('usuario_nome', 'Candidato')}</b></div>",
         unsafe_allow_html=True
@@ -625,6 +760,7 @@ with col_head2:
         st.session_state.clear()
         st.rerun()
     if st.button("Histórico", key="btn_historico"):
+        st.session_state["_exc_pendente"] = None
         dialog_historico()
 
 st.markdown("<hr style='border: none; border-top: 1px solid #E6E1D7; margin: 0.8rem 0 1.5rem 0;'>", unsafe_allow_html=True)
