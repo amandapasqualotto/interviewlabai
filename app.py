@@ -271,7 +271,7 @@ def parecer_com_pergunta(pergunta, texto):
 
 
 # ============================================================
-# CONEXÃO COM SUPABASE & BANCO DE DADOS
+# CONEXÃO COM SUPABASE & BANCO DE DADOS (COM SUPABASE AUTH + RLS)
 # ============================================================
 @st.cache_resource
 def init_supabase() -> Client:
@@ -285,6 +285,14 @@ def init_supabase() -> Client:
 
 supabase = init_supabase()
 
+# Restaura a sessão autenticada do usuário a cada rerun para satisfazer o RLS
+session_tokens = st.session_state.get("_sb_tokens")
+if session_tokens:
+    try:
+        supabase.auth.set_session(session_tokens["access_token"], session_tokens["refresh_token"])
+    except Exception:
+        pass
+
 
 def buscar_usuario(email):
     try:
@@ -294,26 +302,48 @@ def buscar_usuario(email):
         return None
 
 
+def fazer_login_supabase(email, senha):
+    try:
+        res = supabase.auth.sign_in_with_password({"email": email, "password": senha})
+        if res.user and res.session:
+            st.session_state["_sb_tokens"] = {
+                "access_token": res.session.access_token,
+                "refresh_token": res.session.refresh_token
+            }
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def criar_usuario(nome, email, senha):
-    data = {"email": email, "nome": nome, "senha": senha}
-    return supabase.table("usuarios").insert(data).execute()
+    # 1. Cria a conta no Supabase Auth (gera o token JWT para o RLS)
+    res = supabase.auth.sign_up({"email": email, "password": senha})
+    if res.user:
+        if res.session:
+            st.session_state["_sb_tokens"] = {
+                "access_token": res.session.access_token,
+                "refresh_token": res.session.refresh_token
+            }
+            supabase.auth.set_session(res.session.access_token, res.session.refresh_token)
+        # 2. Insere o perfil na tabela 'usuarios'
+        data = {
+            "email": email,
+            "nome": nome,
+            "contexto_vaga": {},
+            "avaliacoes": [],
+            "mensagens_chat": []
+        }
+        return supabase.table("usuarios").insert(data).execute()
+    return None
 
 
-def atualizar_senha_usuario(email, nova_senha):
-    return supabase.table("usuarios").update({"senha": nova_senha}).eq("email", email).execute()
+def enviar_recuperacao_senha(email):
+    return supabase.auth.reset_password_for_email(email)
 
 
 # ============================================================
 # HISTÓRICO (Etapa 1 > Etapa 2 / Etapa 3)
-# Estrutura de cada item de st.session_state["historico"]:
-# {
-#   "id", "data",
-#   "contexto":   {empresa, cargo, descricao, ...}          -> histórico da Etapa 1
-#   "avaliacoes": [{id, data, pergunta, resposta, avaliacao}] -> histórico da Etapa 2
-#   "conversas":  [{id, avaliacao_id, pergunta, data, mensagens}] -> histórico da Etapa 3
-# }
-# Tudo é salvo dentro da coluna já existente "contexto_vaga" (chave "_historico"),
-# então não é preciso alterar o Supabase.
 # ============================================================
 def vaga_ativa():
     ss = st.session_state
@@ -647,10 +677,13 @@ if not st.session_state["usuario_logado"]:
 
             st.write("")
             if st.button("Entrar na Conta ➔", key="btn_login"):
-                user = buscar_usuario(email)
-                if user and user["senha"] == senha:
-                    carregar_sessao(user, email)
-                    st.rerun()
+                if fazer_login_supabase(email, senha):
+                    user = buscar_usuario(email)
+                    if user:
+                        carregar_sessao(user, email)
+                        st.rerun()
+                    else:
+                        st.error("Perfil de usuário não encontrado na base.")
                 else:
                     st.error("E-mail ou senha incorretos.")
 
@@ -681,20 +714,24 @@ if not st.session_state["usuario_logado"]:
             st.markdown("<h3 style='text-align: center; margin-bottom: 1.5rem; font-size: 1.6rem;'>Criar nova conta</h3>", unsafe_allow_html=True)
             novo_nome = st.text_input("Nome completo", key="cad_nome")
             novo_email = st.text_input("E-mail profissional", key="cad_email")
-            nova_senha = st.text_input("Defina uma senha", type="password", key="cad_senha")
+            nova_senha = st.text_input("Defina uma senha (mín. 6 caracteres)", type="password", key="cad_senha")
 
             st.write("")
             if st.button("Finalizar Cadastro e Acessar ➔", key="btn_cadastrar"):
-                if buscar_usuario(novo_email):
-                    st.warning("Este e-mail já está cadastrado.")
-                elif novo_email and nova_senha and novo_nome:
-                    criar_usuario(novo_nome, novo_email, nova_senha)
-                    st.session_state["usuario_logado"] = novo_email
-                    st.session_state["usuario_nome"] = novo_nome
-                    st.session_state["historico"] = []
-                    limpar_vaga_ativa()
-                    st.session_state["etapa_radio_main"] = ETAPA_1
-                    st.rerun()
+                if novo_email and nova_senha and novo_nome:
+                    if len(nova_senha) < 6:
+                        st.warning("A senha deve ter pelo menos 6 caracteres.")
+                    else:
+                        try:
+                            criar_usuario(novo_nome, novo_email, nova_senha)
+                            st.session_state["usuario_logado"] = novo_email
+                            st.session_state["usuario_nome"] = novo_nome
+                            st.session_state["historico"] = []
+                            limpar_vaga_ativa()
+                            st.session_state["etapa_radio_main"] = ETAPA_1
+                            st.rerun()
+                        except Exception as e:
+                            st.warning(f"Não foi possível criar a conta (verifique se o e-mail já existe): {e}")
                 else:
                     st.warning("Preencha todos os campos obrigatórios.")
 
@@ -705,28 +742,21 @@ if not st.session_state["usuario_logado"]:
 
         # MODO 3: REDEFINIR SENHA
         elif st.session_state["auth_mode"] == "recuperar":
-            st.markdown("<h3 style='text-align: center; margin-bottom: 0.5rem; font-size: 1.5rem;'>Redefinir Senha</h3>", unsafe_allow_html=True)
-            st.markdown("<p style='text-align: center; font-size: 0.88rem; color: #6B655C; margin-bottom: 1.5rem;'>Informe seu e-mail cadastrado e defina a nova senha.</p>", unsafe_allow_html=True)
+            st.markdown("<h3 style='text-align: center; margin-bottom: 0.5rem; font-size: 1.5rem;'>Recuperar Senha</h3>", unsafe_allow_html=True)
+            st.markdown("<p style='text-align: center; font-size: 0.88rem; color: #6B655C; margin-bottom: 1.5rem;'>Informe seu e-mail cadastrado para receber o link de redefinição.</p>", unsafe_allow_html=True)
 
             email_recup = st.text_input("E-mail cadastrado", key="recup_email")
-            nova_senha_recup = st.text_input("Nova Senha", type="password", key="recup_nova_senha")
-            confirmar_senha = st.text_input("Confirmar Nova Senha", type="password", key="recup_conf_senha")
 
             st.write("")
-            if st.button("Atualizar Senha ➔", key="btn_confirmar_recup"):
-                if not email_recup or not nova_senha_recup or not confirmar_senha:
-                    st.warning("Preencha todos os campos.")
-                elif nova_senha_recup != confirmar_senha:
-                    st.error("As senhas digitadas não coincidem.")
+            if st.button("Enviar Link de Recuperação ➔", key="btn_confirmar_recup"):
+                if not email_recup:
+                    st.warning("Informe seu e-mail.")
                 else:
-                    user = buscar_usuario(email_recup)
-                    if user:
-                        atualizar_senha_usuario(email_recup, nova_senha_recup)
-                        st.success("Senha alterada com sucesso!")
-                        st.session_state["auth_mode"] = "login"
-                        st.rerun()
-                    else:
-                        st.error("Nenhuma conta encontrada com este e-mail.")
+                    try:
+                        enviar_recuperacao_senha(email_recup)
+                        st.success("Se o e-mail estiver cadastrado, enviamos um link de redefinição para sua caixa de entrada.")
+                    except Exception as e:
+                        st.error(f"Erro ao solicitar recuperação: {e}")
 
             st.write("")
             if st.button("Voltar ao Login", key="btn_voltar_login2"):
@@ -757,6 +787,10 @@ with col_head2:
         unsafe_allow_html=True
     )
     if st.button("Sair da Sessão", key="btn_logout"):
+        try:
+            supabase.auth.sign_out()
+        except Exception:
+            pass
         st.session_state.clear()
         st.rerun()
     if st.button("Histórico", key="btn_historico"):
